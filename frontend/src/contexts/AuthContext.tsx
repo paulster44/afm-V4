@@ -27,6 +27,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // If the user exists but their email is NOT verified, sign them out immediately
+      if (firebaseUser && !firebaseUser.emailVerified) {
+        await signOut(auth);
+        setAuthState({ token: null, user: null, loading: false });
+        return;
+      }
+
       if (firebaseUser) {
         try {
           const token = await getIdToken(firebaseUser);

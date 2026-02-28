@@ -50,7 +50,11 @@ const LoginPage: React.FC = () => {
         }
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred during authentication.');
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setError('Invalid email or password. Please try again.');
+      } else {
+        setError(err.message || 'An error occurred during authentication.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +83,7 @@ const LoginPage: React.FC = () => {
     <div className="flex items-center justify-center min-h-screen bg-gray-900 px-4">
       <div className="w-full max-w-md p-8 bg-gray-800 rounded-lg shadow-md">
         <h2 className="text-3xl font-bold text-center text-white mb-2">
-          {isRegistering ? 'Create Account' : 'AFM Smart Contract Generator ✨'}
+          {isRegistering ? 'Create Account' : 'AFM Smart Contract Generator'}
         </h2>
         <p className="text-sm text-center text-gray-400 mb-8">
           {isRegistering ? 'Start creating contracts today' : 'Sign in to your account'}
@@ -151,7 +155,6 @@ const LoginPage: React.FC = () => {
         </div>
 
         <div className="text-center text-xs text-gray-500 mt-8 pt-4 border-t border-gray-700">
-          <p>Version 8.0 (Standalone Preview)</p>
           <a href="/public/Changelog.md" target="_blank" rel="noopener noreferrer" className="hover:text-gray-400 underline">
             View Changelog
           </a>
