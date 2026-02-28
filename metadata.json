@@ -1,0 +1,7 @@
+{
+  "name": "AFM Smart Contract Generator",
+  "description": "A scalable application to dynamically generate American Federation of Musicians (AFM) contracts and PDFs based on local-specific configuration files.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

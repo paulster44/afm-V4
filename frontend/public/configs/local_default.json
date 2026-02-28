@@ -1,0 +1,384 @@
+{
+    "localId": 0,
+    "localName": "AFM Local",
+    "currency": {
+        "symbol": "$",
+        "code": "USD"
+    },
+    "contractTypes": [
+        {
+            "id": "live_engagement",
+            "name": "Live Engagement",
+            "formIdentifier": "live_engagement",
+            "calculationModel": "live_engagement",
+            "fields": [
+                {
+                    "id": "projectTitle",
+                    "label": "Project / Engagement Title",
+                    "type": "text",
+                    "required": true,
+                    "placeholder": "e.g. Symphony Night at the Bowl"
+                },
+                {
+                    "id": "employer",
+                    "label": "Employer / Purchaser",
+                    "type": "text",
+                    "required": true,
+                    "placeholder": "Name of employer or company"
+                },
+                {
+                    "id": "venue",
+                    "label": "Venue",
+                    "type": "text",
+                    "required": true,
+                    "placeholder": "Venue name and address"
+                },
+                {
+                    "id": "engagementDate",
+                    "label": "Engagement Date",
+                    "type": "date",
+                    "required": true
+                },
+                {
+                    "id": "callTime",
+                    "label": "Call Time",
+                    "type": "time",
+                    "required": true
+                },
+                {
+                    "id": "endTime",
+                    "label": "End Time",
+                    "type": "time",
+                    "required": true
+                },
+                {
+                    "id": "engagementType",
+                    "label": "Scale / Engagement Type",
+                    "type": "select",
+                    "required": true,
+                    "dataSource": "wageScales",
+                    "description": "Select the applicable AFM wage scale for this engagement"
+                },
+                {
+                    "id": "engagementDuration",
+                    "label": "Engagement Duration (hours)",
+                    "type": "number",
+                    "required": false,
+                    "defaultValue": 3,
+                    "min": 0.5,
+                    "description": "Total hours of the engagement (used for overtime calculation)"
+                },
+                {
+                    "id": "overtimeHours",
+                    "label": "Overtime Hours",
+                    "type": "number",
+                    "required": false,
+                    "defaultValue": 0,
+                    "min": 0
+                },
+                {
+                    "id": "rehearsalHours",
+                    "label": "Rehearsal Hours",
+                    "type": "number",
+                    "required": false,
+                    "defaultValue": 0,
+                    "min": 0
+                },
+                {
+                    "id": "rehearsalRate",
+                    "label": "Rehearsal Rate Per Musician",
+                    "type": "currency",
+                    "required": false,
+                    "defaultValue": 0
+                },
+                {
+                    "id": "notes",
+                    "label": "Additional Notes",
+                    "type": "textarea",
+                    "required": false
+                }
+            ],
+            "wageScales": [
+                {
+                    "id": "single_3hr",
+                    "name": "Single Engagement (3 hrs)",
+                    "rate": 214.00,
+                    "duration": 3
+                },
+                {
+                    "id": "single_4hr",
+                    "name": "Single Engagement (4 hrs)",
+                    "rate": 285.34,
+                    "duration": 4
+                },
+                {
+                    "id": "rehearsal_3hr",
+                    "name": "Rehearsal (3 hrs)",
+                    "rate": 107.00,
+                    "duration": 3
+                },
+                {
+                    "id": "additional_hr",
+                    "name": "Additional Hour (per hr)",
+                    "rate": 71.34,
+                    "duration": 1
+                }
+            ],
+            "rules": {
+                "overtimeRate": 1.5,
+                "pensionContribution": {
+                    "rate": 12.65,
+                    "description": "12.65% of scale wages"
+                },
+                "healthContribution": {
+                    "ratePerMusicianPerService": 38.09,
+                    "description": "Per musician per service"
+                },
+                "workDues": {
+                    "rate": 2.5,
+                    "description": "2.5% of scale wages"
+                },
+                "doublingPremium": {
+                    "rate": 15,
+                    "description": "15% of scale per doubling instrument"
+                },
+                "leaderPremium": {
+                    "rate": 100,
+                    "description": "Leader receives double scale"
+                }
+            },
+            "summary": [
+                {
+                    "id": "totalScaleWages",
+                    "label": "Total Base Scale Wages"
+                },
+                {
+                    "id": "totalPremiums",
+                    "label": "Leader / Doubling Premiums"
+                },
+                {
+                    "id": "subtotalWages",
+                    "label": "Subtotal Gross Wages"
+                },
+                {
+                    "id": "pensionContribution",
+                    "label": "Pension (12.65%)"
+                },
+                {
+                    "id": "healthContribution",
+                    "label": "Health & Welfare"
+                },
+                {
+                    "id": "workDues",
+                    "label": "Work Dues (2.5%)"
+                },
+                {
+                    "id": "totalEngagementCost",
+                    "label": "Total Employer Cost"
+                }
+            ]
+        },
+        {
+            "id": "film_tv",
+            "name": "Feature Film / TV",
+            "formIdentifier": "film_tv",
+            "calculationModel": "media_report",
+            "fields": [
+                {
+                    "id": "projectTitle",
+                    "label": "Production Title",
+                    "type": "text",
+                    "required": true,
+                    "placeholder": "e.g. The Grand Horizon"
+                },
+                {
+                    "id": "employer",
+                    "label": "Production Company",
+                    "type": "text",
+                    "required": true
+                },
+                {
+                    "id": "sessionDate",
+                    "label": "Session Date",
+                    "type": "date",
+                    "required": true
+                },
+                {
+                    "id": "callTime",
+                    "label": "Call Time",
+                    "type": "time",
+                    "required": true
+                },
+                {
+                    "id": "studio",
+                    "label": "Recording Studio",
+                    "type": "text",
+                    "required": true
+                },
+                {
+                    "id": "scaleWages",
+                    "label": "Scale Wages Per Musician (per session)",
+                    "type": "currency",
+                    "required": true,
+                    "defaultValue": 490.51,
+                    "description": "Basic 3-hour session scale (SRLA)"
+                },
+                {
+                    "id": "numberOfServices",
+                    "label": "Number of Sessions",
+                    "type": "number",
+                    "required": true,
+                    "defaultValue": 1,
+                    "min": 1
+                },
+                {
+                    "id": "overtimeHours",
+                    "label": "Overtime (half-hours)",
+                    "type": "number",
+                    "required": false,
+                    "defaultValue": 0,
+                    "min": 0
+                },
+                {
+                    "id": "notes",
+                    "label": "Additional Notes",
+                    "type": "textarea",
+                    "required": false
+                }
+            ],
+            "rules": {
+                "overtimeRate": 1.5,
+                "pensionContribution": {
+                    "rate": 12.65,
+                    "description": "12.65% of scale wages"
+                },
+                "healthContribution": {
+                    "ratePerMusicianPerService": 38.09,
+                    "description": "Per musician per session"
+                },
+                "doublingPremium": {
+                    "rate": 15,
+                    "description": "15% per doubling instrument"
+                },
+                "leaderPremium": {
+                    "rate": 100,
+                    "description": "Contractor receives double scale"
+                }
+            },
+            "summary": [
+                {
+                    "id": "totalScaleWages",
+                    "label": "Total Session Wages"
+                },
+                {
+                    "id": "pensionContribution",
+                    "label": "Pension (12.65%)"
+                },
+                {
+                    "id": "healthContribution",
+                    "label": "Health & Welfare"
+                },
+                {
+                    "id": "totalEngagementCost",
+                    "label": "Total Session Cost"
+                }
+            ]
+        },
+        {
+            "id": "commercial",
+            "name": "Commercial / Jingle",
+            "formIdentifier": "commercial",
+            "calculationModel": "media_report",
+            "fields": [
+                {
+                    "id": "projectTitle",
+                    "label": "Product / Commercial Title",
+                    "type": "text",
+                    "required": true
+                },
+                {
+                    "id": "employer",
+                    "label": "Advertising Agency / Client",
+                    "type": "text",
+                    "required": true
+                },
+                {
+                    "id": "sessionDate",
+                    "label": "Session Date",
+                    "type": "date",
+                    "required": true
+                },
+                {
+                    "id": "callTime",
+                    "label": "Call Time",
+                    "type": "time",
+                    "required": true
+                },
+                {
+                    "id": "studio",
+                    "label": "Recording Studio",
+                    "type": "text",
+                    "required": true
+                },
+                {
+                    "id": "scaleWages",
+                    "label": "Scale Wages Per Musician",
+                    "type": "currency",
+                    "required": true,
+                    "defaultValue": 417.96,
+                    "description": "Radio/TV commercial scale"
+                },
+                {
+                    "id": "numberOfServices",
+                    "label": "Number of Sessions",
+                    "type": "number",
+                    "required": true,
+                    "defaultValue": 1,
+                    "min": 1
+                },
+                {
+                    "id": "overtimeHours",
+                    "label": "Overtime Hours",
+                    "type": "number",
+                    "required": false,
+                    "defaultValue": 0,
+                    "min": 0
+                },
+                {
+                    "id": "notes",
+                    "label": "Additional Notes",
+                    "type": "textarea",
+                    "required": false
+                }
+            ],
+            "rules": {
+                "pensionContribution": {
+                    "rate": 12.65,
+                    "description": "12.65% of scale wages"
+                },
+                "healthContribution": {
+                    "ratePerMusicianPerService": 38.09,
+                    "description": "Per musician per session"
+                }
+            },
+            "summary": [
+                {
+                    "id": "totalScaleWages",
+                    "label": "Total Session Wages"
+                },
+                {
+                    "id": "pensionContribution",
+                    "label": "Pension (12.65%)"
+                },
+                {
+                    "id": "healthContribution",
+                    "label": "Health & Welfare"
+                },
+                {
+                    "id": "totalEngagementCost",
+                    "label": "Total Cost"
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,36 @@
+{
+  "localId": 557,
+  "localName": "CFM Local 557, Toronto, ON",
+  "currency": {
+    "symbol": "C$",
+    "code": "CAD"
+  },
+  "contractTypes": [
+    {
+      "id": "cfm_traveling_musician",
+      "name": "Traveling Musician Agreement",
+      "formIdentifier": "CFM_557_Traveling_Agreement",
+      "calculationModel": "live_engagement",
+      "signatureType": "engagement",
+      "jurisdiction": "Canada (Federal)",
+      "fields": [
+        { "id": "purchaserName", "label": "Purchaser Name", "type": "text", "required": true, "group": "Purchaser Details" },
+        { "id": "homeLocal", "label": "Musician's Home Local", "type": "text", "required": true, "placeholder": "e.g., Local 149, Toronto", "group": "Leader Details" },
+        { "id": "engagementDate", "label": "Date of Engagement", "type": "date", "required": true, "group": "Engagement Details" },
+        { "id": "engagementDuration", "label": "Engagement Duration (hours)", "type": "number", "required": true, "min": 1, "group": "Engagement Details" },
+        { "id": "venueName", "label": "Venue Name & Address", "type": "textarea", "required": true, "group": "Engagement Details" },
+        { "id": "engagementLocal", "label": "Jurisdiction of Engagement", "type": "text", "required": true, "placeholder": "e.g., Local 293, Hamilton", "group": "Engagement Details" },
+        { "id": "totalScaleWages", "label": "Total Scale Wages (per musician, per engagement)", "type": "currency", "required": true, "min": 0, "group": "Compensation", "description": "For traveling dates, scale is often negotiated per engagement." },
+        { "id": "overtimeHours", "label": "Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "perDiem", "label": "Per Diem (per musician, per day)", "type": "currency", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "travelExpenses", "label": "Total Travel Expenses (lodging, transport)", "type": "currency", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 9, "basedOn": ["totalScaleWages", "overtimePay"], "description": "9% MPTF of Canada" },
+        "workDues": { "rate": 2.5, "basedOn": ["totalScaleWages", "overtimePay"], "description": "2.5% on traveling wages" }
+      },
+      "summary": []
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AFM Smart Contract Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        html, body, #root {
+            width: 100%;
+            overflow-x: hidden;
+        }
+        /* Force calendar and clock icons to be white in dark mode for Webkit browsers */
+        input[type="date"]::-webkit-calendar-picker-indicator,
+        input[type="time"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+        @keyframes pulse-bg {
+            0%, 100% { background-color: rgba(55, 48, 163, 0.4); } /* bg-indigo-800 with opacity */
+            50% { background-color: rgba(79, 70, 229, 0.6); } /* bg-indigo-600 with opacity */
+        }
+        .next-step-highlight {
+            animation: pulse-bg 2.5s infinite ease-in-out;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "url": "https://aistudiocdn.com/url@^0.11.4",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "vite": "https://aistudiocdn.com/vite@^7.1.9",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.24.0",
+    "cors": "https://aistudiocdn.com/cors@^2.8.5",
+    "jsonwebtoken": "https://aistudiocdn.com/jsonwebtoken@^9.0.2",
+    "axios": "https://aistudiocdn.com/axios@^1.12.2",
+    "jspdf": "https://aistudiocdn.com/jspdf@^3.0.3",
+    "bcryptjs": "https://aistudiocdn.com/bcryptjs@^3.0.2",
+    "express": "https://aistudiocdn.com/express@^5.1.0",
+    "jspdf-autotable": "https://aistudiocdn.com/jspdf-autotable@^5.0.2",
+    "firebase-admin": "https://aistudiocdn.com/firebase-admin@^13.5.0",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "dotenv": "https://aistudiocdn.com/dotenv@^17.2.3",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.0.4"
+  }
+}
+</script>
+</head>
+<body class="bg-gray-900">
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+</body>
+</html>

@@ -1,0 +1,289 @@
+{
+  "localId": 802,
+  "localName": "AFM Local 802, New York, NY",
+  "currency": {
+    "symbol": "$",
+    "code": "USD"
+  },
+  "contractTypes": [
+    {
+      "id": "local_live_engagement",
+      "name": "Local Live Engagement (Form L-1 / L-2)",
+      "formIdentifier": "AFM_L1_L2_Engagement",
+      "calculationModel": "live_engagement",
+      "signatureType": "engagement",
+      "wageScales": [
+        { "id": "club_date_3_hour", "name": "Club Date (3 hours)", "rate": 300.00, "duration": 3 },
+        { "id": "club_date_4_hour", "name": "Club Date (4 hours)", "rate": 350.00, "duration": 4 },
+        { "id": "club_date_5_hour", "name": "Club Date (5 hours)", "rate": 400.00, "duration": 5 },
+        { "id": "wedding_ceremony_1_5_hour", "name": "Wedding: Ceremony Only (1.5 hours)", "rate": 375.00, "duration": 1.5 },
+        { "id": "wedding_cocktail_1_hour", "name": "Wedding: Cocktail Hour Only (1 hour)", "rate": 250.00, "duration": 1 },
+        { "id": "wedding_reception_4_hour", "name": "Wedding: Reception Only (4 hours)", "rate": 550.00, "duration": 4 },
+        { "id": "wedding_full_5_hour", "name": "Wedding: Ceremony & Reception (5 hours)", "rate": 800.00, "duration": 5 },
+        { "id": "concert_single_service_2_5_hour", "name": "Concert: Single Service (2.5 hours)", "rate": 280.00, "duration": 2.5 },
+        { "id": "concert_double_header_5_hour", "name": "Concert: Double Header (5 hours)", "rate": 500.00, "duration": 5 },
+        { "id": "symphonic_single_service_2_5_hour", "name": "Symphonic: Single Service (2.5 hours)", "rate": 320.00, "duration": 2.5 },
+        { "id": "symphonic_rehearsal_3_hour", "name": "Symphonic: Rehearsal (3 hours)", "rate": 180.00, "duration": 3 },
+        { "id": "rehearsal_3_hour", "name": "Rehearsal Only (3 hours)", "rate": 150.00, "duration": 3 },
+        { "id": "corporate_event_4_hour", "name": "Corporate Event (4 hours)", "rate": 500.00, "duration": 4 },
+        { "id": "private_party_3_hour", "name": "Private Party (3 hours)", "rate": 400.00, "duration": 3 },
+        { "id": "ws_cartage_harp", "name": "Cartage - Harp", "rate": 50.00, "duration": 0 },
+        { "id": "ws_cartage_drums", "name": "Cartage - Drum Set", "rate": 25.00, "duration": 0 },
+        { "id": "ws_cartage_tuba", "name": "Cartage - Tuba / Contrabassoon", "rate": 20.00, "duration": 0 }
+      ],
+      "fields": [
+        { "id": "disputeResolution", "label": "Dispute Resolution", "type": "select", "required": true, "options": ["Binding Arbitration (L-1)", "Direct Court Action (L-2)"], "group": "Agreement Terms", "description": "Select the method for resolving disputes as per AFM forms L-1 or L-2." },
+        { "id": "purchaserName", "label": "Purchaser/Employer Name", "type": "text", "required": true, "group": "Purchaser (Employer) Details" },
+        { "id": "purchaserAddress", "label": "Address", "type": "text", "required": true, "group": "Purchaser (Employer) Details" },
+        { "id": "purchaserPhone", "label": "Phone", "type": "text", "required": true, "group": "Purchaser (Employer) Details", "minLength": 7 },
+        { "id": "engagementDate", "label": "Date of Engagement", "type": "date", "required": true, "group": "Engagement Details" },
+        { "id": "engagementStartTime", "label": "Start Time", "type": "time", "required": true, "group": "Engagement Details" },
+        { "id": "engagementDuration", "label": "Actual Engagement Duration (hours)", "type": "number", "required": true, "group": "Engagement Details", "min": 1, "description": "Enter the total performance time from start to finish. Overtime is automatically calculated and displayed in the summary if this value exceeds the standard duration for the selected Engagement Type." },
+        { "id": "engagementType", "label": "Type of Engagement", "type": "select", "required": true, "dataSource": "wageScales", "group": "Engagement Details", "description": "Select the primary wage scale for this engagement. This will apply to all musicians." },
+        { "id": "venueName", "label": "Venue Name & Address", "type": "textarea", "required": true, "group": "Engagement Details" },
+        { "id": "overtimeHours", "label": "Additional Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation", "description": "Enter any *additional*, pre-negotiated overtime hours here. This is for special cases (e.g., compensating for long breaks). Do NOT re-enter overtime that is already automatically calculated from the 'Actual Engagement Duration' above. This value is added on top of the automatic calculation." },
+        { "id": "rehearsalHours", "label": "Rehearsal Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "rehearsalRate", "label": "Rehearsal Rate (per hour, per musician)", "type": "currency", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "depositAmount", "label": "Deposit Amount", "type": "currency", "required": false, "min": 0, "group": "Financial Terms" },
+        { "id": "balanceDueDate", "label": "Balance Due Date", "type": "date", "required": false, "group": "Financial Terms" },
+        { "id": "additionalTerms", "label": "Additional Terms & Conditions", "type": "textarea", "required": false, "group": "Additional Terms" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "leaderPremium": { "rate": 100, "description": "Leader receives double scale" },
+        "doublingPremium": { "rate": 25, "description": "25% of scale wage for first double" },
+        "pensionContribution": { "rate": 10, "basedOn": ["totalScaleWages", "overtimePay", "rehearsalPay"], "description": "10% of gross wages" },
+        "healthContribution": { "ratePerMusicianPerService": 25.00, "description": "$25.00 per musician per engagement" },
+        "workDues": { "rate": 3, "basedOn": ["totalScaleWages", "overtimePay", "rehearsalPay"], "description": "3% of gross wages" }
+      },
+      "summary": [],
+      "legalText": {
+        "preamble": "THIS CONTRACT for the personal services of musicians, made this day of {TODAY}, between the undersigned Purchaser (hereinafter called the 'Purchaser') and {numberOfMusicians} musician(s) (hereinafter called the 'Musicians'). The Purchaser hereby employs the personal services of the Musicians, and the Musicians hereby agree to render collectively and in behalf of the undersigned Leader, their services as musicians in the orchestra under the leadership of {leaderName}.",
+        "clause1": "The terms and conditions of this contract shall be in accordance with all the rules and regulations of the American Federation of Musicians and its affiliated Local in whose jurisdiction the engagement is to be performed.",
+        "clause2_Recording": "No performance of the engagement shall be recorded, reproduced, or transmitted from the place of performance in any manner or by any means whatsoever, in the absence of a specific written agreement with the Federation relating to and permitting such recording, reproduction, or transmission.",
+        "clause_arbitrationL1": "All claims, disputes, or controversies arising out of or in connection with this agreement shall be submitted for final and binding resolution to the Executive Board of the Local Union in whose jurisdiction the services were performed, or to the American Arbitration Association, at the Purchaser's election.",
+        "clause_courtActionL2": "Any claims, disputes, or controversies arising out of or in connection with this agreement shall be adjudicated in a court of competent jurisdiction."
+      }
+    },
+    {
+      "id": "canadian_live_lpcc",
+      "name": "Live Performance Contract for Canada (LPCC)",
+      "formIdentifier": "CFM_LPCC_Engagement",
+      "calculationModel": "live_engagement",
+      "signatureType": "engagement",
+      "jurisdiction": "Canada (Provincial/Territorial Law)",
+      "currency": { "symbol": "C$", "code": "CAD" },
+      "wageScales": [
+        { "id": "festival_single_gig", "name": "Festival Performance (4 hours)", "rate": 400.00, "duration": 4 },
+        { "id": "corporate_show_3_hour", "name": "Corporate Show (3 hours)", "rate": 550.00, "duration": 3 },
+        { "id": "bar_gig_4_hour", "name": "Club/Bar Gig (4 hours)", "rate": 250.00, "duration": 4 }
+      ],
+      "fields": [
+        { "id": "purchaserName", "label": "Engager/Purchaser Name", "type": "text", "required": true, "group": "Engager (Purchaser) Details" },
+        { "id": "purchaserAddress", "label": "Address", "type": "text", "required": true, "group": "Engager (Purchaser) Details" },
+        { "id": "engagementDate", "label": "Date of Engagement", "type": "date", "required": true, "group": "Engagement Details" },
+        { "id": "engagementDuration", "label": "Actual Engagement Duration (hours)", "type": "number", "required": true, "group": "Engagement Details", "min": 1 },
+        { "id": "engagementType", "label": "Type of Engagement", "type": "select", "required": true, "dataSource": "wageScales", "group": "Engagement Details", "description": "Select the primary wage scale for this engagement. This will apply to all musicians." },
+        { "id": "venueName", "label": "Venue Name & Address", "type": "textarea", "required": true, "group": "Engagement Details" },
+        { "id": "rehearsalHours", "label": "Rehearsal Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "rehearsalRate", "label": "Rehearsal Rate (per hour, per musician)", "type": "currency", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "depositAmount", "label": "Advance Deposit", "type": "currency", "required": false, "min": 0, "group": "Financial Terms" },
+        { "id": "additionalTerms", "label": "Additional Terms", "type": "textarea", "required": false, "group": "Additional Terms" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 9, "basedOn": ["totalScaleWages", "overtimePay", "rehearsalPay"], "description": "9% MPTF of Canada" },
+        "healthContribution": { "ratePerMusicianPerService": 5.00, "description": "Per musician per engagement" },
+        "workDues": { "rate": 2.5, "basedOn": ["totalScaleWages", "overtimePay", "rehearsalPay"], "description": "2.5% of gross wages" }
+      },
+      "legalText": {
+        "preamble": "THIS CONTRACT for the personal services of musicians, made this day of {TODAY}, between the undersigned Engager and {numberOfMusicians} musician(s) represented by the undersigned Leader.",
+        "clause_governingLaw": "This agreement shall be governed by the laws of the Province or Territory in which the performance occurs.",
+        "clause_disputes": "All disputes will be resolved through the process outlined by the Canadian Federation of Musicians and the relevant Local."
+      }
+    },
+    {
+      "id": "canadian_live_ca1",
+      "name": "Canadian Live Engagement (Form CA-1)",
+      "formIdentifier": "CFM_CA1_Engagement",
+      "calculationModel": "live_engagement",
+      "signatureType": "engagement",
+      "jurisdiction": "Canada (Provincial/Territorial Law)",
+      "currency": { "symbol": "C$", "code": "CAD" },
+       "wageScales": [
+        { "id": "general_engagement_4_hour", "name": "General Engagement (4 hours)", "rate": 300.00, "duration": 4 },
+        { "id": "public_performance_3_hour", "name": "Public Performance (3 hours)", "rate": 275.00, "duration": 3 },
+        { "id": "private_function_3_hour", "name": "Private Function (3 hours)", "rate": 350.00, "duration": 3 }
+      ],
+      "fields": [
+          { "id": "purchaserName", "label": "Engager/Purchaser Name", "type": "text", "required": true, "group": "Engager (Purchaser) Details" },
+          { "id": "engagementDate", "label": "Date of Engagement", "type": "date", "required": true, "group": "Engagement Details" },
+          { "id": "venueName", "label": "Venue Name & Address", "type": "textarea", "required": true, "group": "Engagement Details" },
+          { "id": "engagementDuration", "label": "Actual Engagement Duration (hours)", "type": "number", "required": true, "min": 1, "group": "Compensation" },
+          { "id": "engagementType", "label": "Type of Engagement", "type": "select", "required": true, "dataSource": "wageScales", "group": "Engagement Details", "description": "Select the primary wage scale for this engagement. This will apply to all musicians." },
+          { "id": "overtimeHours", "label": "Additional Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 9, "basedOn": ["totalScaleWages", "overtimePay"], "description": "9% MPTF of Canada" },
+        "healthContribution": { "ratePerMusicianPerService": 5.00, "description": "Per musician per engagement" },
+        "workDues": { "rate": 2.5, "basedOn": ["totalScaleWages", "overtimePay"], "description": "2.5% of gross wages" }
+      }
+    },
+    {
+      "id": "traveling_live_engagement",
+      "name": "Traveling Live Engagement (Form T-2)",
+      "formIdentifier": "AFM_T2_Engagement",
+      "calculationModel": "live_engagement",
+      "signatureType": "engagement",
+      "fields": [
+        { "id": "purchaserName", "label": "Purchaser Name", "type": "text", "required": true, "group": "Purchaser Details" },
+        { "id": "homeLocal", "label": "Leader's Home Local", "type": "text", "required": true, "placeholder": "e.g., Local 802, New York", "group": "Leader Details" },
+        { "id": "engagementDate", "label": "Date of Engagement", "type": "date", "required": true, "group": "Engagement Details" },
+        { "id": "engagementStartTime", "label": "Start Time", "type": "time", "required": true, "group": "Engagement Details" },
+        { "id": "engagementDuration", "label": "Engagement Duration (hours)", "type": "number", "required": true, "min": 1, "group": "Engagement Details" },
+        { "id": "venueName", "label": "Venue Name & Address", "type": "textarea", "required": true, "group": "Engagement Details" },
+        { "id": "engagementLocal", "label": "Jurisdiction of Engagement", "type": "text", "required": true, "placeholder": "e.g., Local 47, Los Angeles", "group": "Engagement Details" },
+        { "id": "totalScaleWages", "label": "Total Scale Wages (per musician)", "type": "currency", "required": true, "min": 0, "group": "Compensation", "description": "For traveling dates, scale is often negotiated per engagement." },
+        { "id": "overtimeHours", "label": "Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "perDiem", "label": "Per Diem (per musician, per day)", "type": "currency", "required": false, "min": 0, "group": "Compensation" },
+        { "id": "travelExpenses", "label": "Total Travel Expenses (lodging, transport)", "type": "currency", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 11, "basedOn": ["totalScaleWages", "overtimePay"], "description": "Pension on wages" },
+        "healthContribution": { "ratePerMusicianPerService": 28.00, "description": "Rate for traveling dates" },
+        "workDues": { "rate": 3.5, "basedOn": ["totalScaleWages", "overtimePay"], "description": "3.5% on traveling wages" }
+      },
+      "summary": []
+    },
+    {
+      "id": "pension_health_ls1",
+      "name": "Pension & Health Agreement (Form LS-1)",
+      "formIdentifier": "AFM_LS1_Agreement",
+      "calculationModel": "contribution_only",
+      "signatureType": "engagement",
+      "fields": [
+        { "id": "purchaserName", "label": "Employer Name", "type": "text", "required": true, "group": "Employer Details" },
+        { "id": "purchaserAddress", "label": "Employer Address", "type": "text", "required": true, "group": "Employer Details" },
+        { "id": "leaderLocal", "label": "Musician's Home Local", "type": "text", "required": true, "group": "Musician Details" },
+        { "id": "engagementDate", "label": "Date of Engagement", "type": "date", "required": true, "group": "Engagement Details" },
+        { "id": "engagementLocation", "label": "Location of Engagement", "type": "textarea", "required": true, "group": "Engagement Details" },
+        { "id": "totalPensionableWages", "label": "Total Pensionable Wages", "type": "currency", "required": true, "min": 0, "group": "Contribution Calculation", "description": "Enter the gross wages subject to pension contributions from the primary contract (e.g., L-1)." },
+        { "id": "pensionContributionPercentage", "label": "Pension Contribution (%)", "type": "number", "required": true, "min": 0, "group": "Contribution Calculation", "description": "Enter the agreed-upon percentage for AFM-EPF contribution." },
+        { "id": "healthContributionAmount", "label": "Health Contribution Amount", "type": "currency", "required": false, "min": 0, "group": "Contribution Calculation", "description": "Enter the flat amount for health fund contributions, if applicable." }
+      ],
+      "rules": {},
+      "summary": []
+    },
+    {
+      "id": "media_report_b4",
+      "name": "Media Report (Form B-4 - Sound Recording)",
+      "formIdentifier": "AFM_B4_Media_Report",
+      "calculationModel": "media_report",
+      "signatureType": "media_report",
+      "fields": [
+        { "id": "recordCompanyName", "label": "Record Company Name", "type": "text", "required": true, "group": "Session Details" },
+        { "id": "sessionDate", "label": "Session Date", "type": "date", "required": true, "group": "Session Details" },
+        { "id": "sessionTime", "label": "Session Time", "type": "time", "required": true, "group": "Session Details" },
+        { "id": "studioName", "label": "Studio Name & Address", "type": "textarea", "required": true, "group": "Session Details" },
+        { "id": "artistName", "label": "Artist Name", "type": "text", "required": true, "group": "Personnel" },
+        { "id": "producerName", "label": "Producer Name", "type": "text", "required": false, "group": "Personnel" },
+        { "id": "scaleWages", "label": "Scale Wages (per musician, per 3-hour session)", "type": "currency", "required": true, "min": 0, "group": "Compensation" },
+        { "id": "numberOfServices", "label": "Number of Sessions (Services)", "type": "number", "required": true, "defaultValue": 1, "min": 1, "group": "Compensation" },
+        { "id": "overtimeHours", "label": "Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 12.81, "basedOn": ["scaleWages", "overtimePay"], "description": "SRLA Rate" },
+        "healthContribution": { "ratePerMusicianPerService": 32.00, "description": "H&W rate per session" }
+      },
+      "summary": []
+    },
+     {
+      "id": "media_report_b6",
+      "name": "Media Report (Form B-6 - Commercials)",
+      "formIdentifier": "AFM_B6_Media_Report",
+      "calculationModel": "media_report",
+      "signatureType": "media_report",
+      "fields": [
+        { "id": "agencyName", "label": "Advertising Agency", "type": "text", "required": true, "group": "Project Details" },
+        { "id": "clientName", "label": "Client / Advertiser", "type": "text", "required": true, "group": "Project Details" },
+        { "id": "productName", "label": "Product Name", "type": "text", "required": true, "group": "Project Details" },
+        { "id": "sessionDate", "label": "Session Date", "type": "date", "required": true, "group": "Session Details" },
+        { "id": "sessionTime", "label": "Session Time", "type": "time", "required": true, "group": "Session Details" },
+        { "id": "studioName", "label": "Studio Name & Address", "type": "textarea", "required": true, "group": "Session Details" },
+        { "id": "scaleWages", "label": "Scale Wages (per musician, per service)", "type": "currency", "required": true, "min": 0, "group": "Compensation" },
+        { "id": "numberOfServices", "label": "Number of Sessions (Services)", "type": "number", "required": true, "defaultValue": 1, "min": 1, "group": "Compensation" },
+        { "id": "overtimeHours", "label": "Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 15.24, "basedOn": ["scaleWages", "overtimePay"], "description": "Commercial Announcements Agreement Rate" },
+        "healthContribution": { "ratePerMusicianPerService": 40.00, "description": "H&W rate per commercial session" }
+      },
+      "summary": []
+    },
+    {
+      "id": "media_report_b7",
+      "name": "Media Report (Form B-7 - Film/TV Scoring)",
+      "formIdentifier": "AFM_B7_Media_Report",
+      "calculationModel": "media_report",
+      "signatureType": "media_report",
+      "fields": [
+        { "id": "productionCompanyName", "label": "Production Company", "type": "text", "required": true, "group": "Project Details" },
+        { "id": "projectName", "label": "Project/Film Title", "type": "text", "required": true, "group": "Project Details" },
+        { "id": "episodeInfo", "label": "Series Name / Episode", "type": "text", "required": false, "placeholder": "e.g., 'The Crown', S05E02", "group": "Project Details" },
+        { "id": "sessionDate", "label": "Session Date", "type": "date", "required": true, "group": "Session Details" },
+        { "id": "sessionTime", "label": "Session Time", "type": "time", "required": true, "group": "Session Details" },
+        { "id": "studioName", "label": "Scoring Stage & Address", "type": "textarea", "required": true, "group": "Session Details" },
+        { "id": "composerName", "label": "Composer Name", "type": "text", "required": true, "group": "Personnel" },
+        { "id": "contractorName", "label": "Contractor Name", "type": "text", "required": true, "group": "Personnel" },
+        { "id": "scaleWages", "label": "Scale Wages (per musician, per 3-hour session)", "type": "currency", "required": true, "min": 0, "group": "Compensation" },
+        { "id": "numberOfServices", "label": "Number of Sessions (Services)", "type": "number", "required": true, "defaultValue": 1, "min": 1, "group": "Compensation" },
+        { "id": "overtimeHours", "label": "Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 11.59, "basedOn": ["scaleWages", "overtimePay"], "description": "Theatrical Motion Picture Rate" },
+        "healthContribution": { "ratePerMusicianPerService": 35.00, "description": "H&W rate per film session" }
+      },
+      "summary": []
+    },
+    {
+      "id": "pension_beneficiary_designation",
+      "name": "Pension Fund - Beneficiary Designation",
+      "formIdentifier": "AFM_EPF_Beneficiary_Designation_Form",
+      "signatureType": "member",
+      "fields": [
+        { "id": "memberName", "label": "Member's Full Name", "type": "text", "required": true, "group": "Member Information" },
+        { "id": "memberSSN", "label": "Member's SSN/SIN", "type": "text", "required": true, "group": "Member Information" },
+        { "id": "memberLocal", "label": "Member's Home Local", "type": "text", "required": true, "group": "Member Information" },
+        { "id": "primaryBeneficiaryName", "label": "Full Name", "type": "text", "required": true, "group": "Primary Beneficiary" },
+        { "id": "primaryBeneficiaryRelationship", "label": "Relationship", "type": "text", "required": true, "group": "Primary Beneficiary" },
+        { "id": "primaryBeneficiaryDOB", "label": "Date of Birth", "type": "date", "required": true, "group": "Primary Beneficiary" },
+        { "id": "primaryBeneficiarySSN", "label": "SSN/SIN", "type": "text", "required": true, "group": "Primary Beneficiary" },
+        { "id": "contingentBeneficiaryName", "label": "Full Name", "type": "text", "required": false, "group": "Contingent Beneficiary (Optional)" },
+        { "id": "contingentBeneficiaryRelationship", "label": "Relationship", "type": "text", "required": false, "group": "Contingent Beneficiary (Optional)" },
+        { "id": "contingentBeneficiaryDOB", "label": "Date of Birth", "type": "date", "required": false, "group": "Contingent Beneficiary (Optional)" }
+      ],
+      "summary": []
+    },
+    {
+      "id": "visa_consultation_request",
+      "name": "Visa Consultation Request (for O/P Visas)",
+      "formIdentifier": "AFM_Visa_Consultation_Questionnaire",
+      "signatureType": "petitioner",
+      "fields": [
+        { "id": "petitionerName", "label": "Petitioner Name (Artist, Group, or Employer)", "type": "text", "required": true, "group": "Petitioner Information" },
+        { "id": "contactPerson", "label": "Contact Person", "type": "text", "required": true, "group": "Petitioner Information" },
+        { "id": "contactPhone", "label": "Contact Phone", "type": "text", "required": true, "group": "Petitioner Information", "minLength": 7 },
+        { "id": "contactEmail", "label": "Contact Email", "type": "text", "required": true, "group": "Petitioner Information" },
+        { "id": "visaClassification", "label": "Visa Classification Sought", "type": "select", "required": true, "options": ["O-1B: Individuals with Extraordinary Ability", "P-1B: Internationally Recognized Entertainment Groups", "P-2: Reciprocal Exchange Artists"], "group": "Visa Details" },
+        { "id": "beneficiaryNames", "label": "Full Name(s) of All Beneficiaries (Artists)", "type": "textarea", "required": true, "group": "Visa Details", "description": "List each artist on a new line." },
+        { "id": "itinerary", "label": "Itinerary of Engagements", "type": "textarea", "required": true, "group": "Engagement Itinerary", "description": "List dates, venues, and locations for all performances." }
+      ],
+      "summary": []
+    }
+  ]
+}

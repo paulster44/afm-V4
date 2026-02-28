@@ -1,0 +1,34 @@
+{
+  "localId": 257,
+  "localName": "AFM Local 257, Nashville, TN",
+  "currency": {
+    "symbol": "$",
+    "code": "USD"
+  },
+  "contractTypes": [
+    {
+      "id": "nashville_session_agreement",
+      "name": "Session Musician Agreement",
+      "formIdentifier": "AFM_257_Session_Agreement",
+      "calculationModel": "media_report",
+      "signatureType": "media_report",
+      "fields": [
+        { "id": "recordCompanyName", "label": "Signatory Company Name", "type": "text", "required": true, "group": "Session Details" },
+        { "id": "sessionDate", "label": "Session Date", "type": "date", "required": true, "group": "Session Details" },
+        { "id": "sessionTime", "label": "Session Time", "type": "time", "required": true, "group": "Session Details" },
+        { "id": "studioName", "label": "Studio Name & Address", "type": "textarea", "required": true, "group": "Session Details" },
+        { "id": "artistName", "label": "Artist Name", "type": "text", "required": true, "group": "Personnel" },
+        { "id": "producerName", "label": "Producer Name", "type": "text", "required": false, "group": "Personnel" },
+        { "id": "scaleWages", "label": "Scale Wages (per musician, per 3-hour session)", "type": "currency", "required": true, "min": 0, "group": "Compensation" },
+        { "id": "numberOfServices", "label": "Number of Sessions (Services)", "type": "number", "required": true, "defaultValue": 1, "min": 1, "group": "Compensation" },
+        { "id": "overtimeHours", "label": "Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" }
+      ],
+      "rules": {
+        "overtimeRate": 1.5,
+        "pensionContribution": { "rate": 13.5, "basedOn": ["scaleWages", "overtimePay"], "description": "Nashville Session Rate (13.5%)" },
+        "healthContribution": { "ratePerMusicianPerService": 30.00, "description": "$30.00 H&W per session" }
+      },
+      "summary": []
+    }
+  ]
+}

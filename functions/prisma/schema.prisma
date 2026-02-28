@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  name         String?
+  passwordHash String?
+  role         String         @default("USER") // 'USER', 'ADMIN', 'GOD'
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  memberships  Membership[]
+  oauths       OAuthAccount[]
+  contracts    Contract[]
+}
+
+model OAuthAccount {
+  id             String   @id @default(uuid())
+  provider       String
+  providerUserId String
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  @@unique([provider, providerUserId])
+}
+
+model Workspace {
+  id          String       @id @default(uuid())
+  name        String
+  ownerUserId String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+  invites     Invite[]
+  items       Item[]
+}
+
+model Membership {
+  id          String   @id @default(uuid())
+  userId      String
+  workspaceId String
+  role        String   @default("MEMBER") // 'OWNER', 'ADMIN', 'MEMBER'
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model Invite {
+  id          String   @id @default(uuid())
+  email       String
+  workspaceId String
+  role        String   @default("MEMBER") // 'ADMIN', 'MEMBER'
+  token       String   @unique
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([email, workspaceId])
+}
+
+model Item {
+  id              String   @id @default(uuid())
+  title           String
+  description     String?
+  workspaceId     String
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Contract {
+  id             String            @id @default(uuid())
+  userId         String
+  localId        Int
+  contractTypeId String
+  name           String
+  baseFormData   Json
+  personnel      Json
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions ContractVersion[]
+
+  @@index([userId, localId])
+}
+
+model ContractVersion {
+  id             String   @id @default(uuid())
+  contractId     String
+  name           String
+  formData       Json
+  personnel      Json
+  contractTypeId String
+  createdAt      DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}

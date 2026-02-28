@@ -1,0 +1,11 @@
+{
+  "locals": [
+    { "id": 802, "name": "AFM Local 802, New York, NY" },
+    { "id": 47, "name": "AFM Local 47, Los Angeles, CA" },
+    { "id": 149, "name": "CFM Local 149, Toronto, ON" },
+    { "id": 72, "name": "AFM Local 72-147, Dallas-Fort Worth, TX" },
+    { "id": 257, "name": "AFM Local 257, Nashville, TN" },
+    { "id": 161, "name": "AFM Local 161-710, Washington D.C." },
+    { "id": 557, "name": "CFM Local 557, Toronto, ON" }
+  ]
+}
