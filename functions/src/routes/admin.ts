@@ -55,6 +55,44 @@ router.put('/users/:id/role', requireGod, async (req: AuthRequest, res: Response
     }
 });
 
+// POST /api/admin/announcements
+// Create a new global announcement (ADMIN and GOD)
+router.post('/announcements', requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const { message } = req.body;
+
+        if (!message || typeof message !== 'string') {
+            return res.status(400).json({ error: 'Valid message is required' });
+        }
+
+        if (!req.user || !req.user.id) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // Use a transaction to ensure only one announcement is active
+        const [_, newAnnouncement] = await prisma.$transaction([
+            // Deactivate all existing announcements
+            prisma.announcement.updateMany({
+                where: { isActive: true },
+                data: { isActive: false }
+            }),
+            // Create the new active announcement
+            prisma.announcement.create({
+                data: {
+                    message,
+                    isActive: true,
+                    createdByUserId: req.user.id
+                }
+            })
+        ]);
+
+        res.status(201).json({ announcement: newAnnouncement });
+    } catch (error) {
+        console.error('[POST /admin/announcements]', error);
+        res.status(500).json({ error: 'Failed to create announcement' });
+    }
+});
+
 import { Request } from 'express';
 import { exec } from 'child_process';
 import path from 'path';

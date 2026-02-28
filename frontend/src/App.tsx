@@ -7,6 +7,7 @@ import LoginPage from './components/LoginPage';
 import LocalSelector from './components/LocalSelector';
 import AdminPanel from './components/AdminPanel';
 import AdminRoute from './components/AdminRoute';
+import AnnouncementBanner from './components/AnnouncementBanner';
 
 
 const MainAppView: React.FC<{ localId: number; onResetLocal: () => void; onLogout: () => void; }> = ({ localId, onResetLocal, onLogout }) => {
@@ -82,12 +83,23 @@ const MainAppView: React.FC<{ localId: number; onResetLocal: () => void; onLogou
 }
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, logout } = useAuth();
+  const { authState, isAuthenticated, logout } = useAuth();
   const [selectedLocalId, setSelectedLocalId] = useState<number | null>(() => {
     const saved = localStorage.getItem('afm_selected_local_id');
     return saved ? parseInt(saved, 10) : null;
   });
   const [route, setRoute] = useState(window.location.hash);
+
+  // When a user successfully logs in, the AppContent component might not have unmounted
+  // (e.g. if using a popup), so we must explicitly re-check localStorage for their saved Local.
+  useEffect(() => {
+    if (authState.user) {
+      const saved = localStorage.getItem('afm_selected_local_id');
+      if (saved) {
+        setSelectedLocalId(parseInt(saved, 10));
+      }
+    }
+  }, [authState.user]);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -110,10 +122,20 @@ const AppContent: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('afm_selected_local_id');
-    setSelectedLocalId(null);
     logout();
   };
+
+  // Wait for Firebase to determine auth status on soft-reloads before routing
+  if (authState.loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900">
+        <svg className="animate-spin -ml-1 mr-3 h-10 w-10 text-emerald-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </div>
+    );
+  }
 
   // Since auth is mocked to always be true, we skip the login page.
   if (!isAuthenticated()) {
@@ -123,20 +145,29 @@ const AppContent: React.FC = () => {
   if (route === '#admin') {
     return (
       <AdminRoute>
-        <AdminPanel />
+        <div className="min-h-screen flex flex-col bg-gray-900">
+          <AnnouncementBanner />
+          <AdminPanel />
+        </div>
       </AdminRoute>
     );
   }
 
   if (!selectedLocalId) {
     return (
-      <main className="min-h-screen text-slate-50 bg-slate-900">
+      <main className="min-h-screen flex flex-col text-slate-50 bg-slate-900">
+        <AnnouncementBanner />
         <LocalSelector onSelectLocal={handleSelectLocal} onLogout={handleLogout} />
       </main>
     );
   }
 
-  return <MainAppView localId={selectedLocalId} onResetLocal={handleResetLocal} onLogout={handleLogout} />;
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-900">
+      <AnnouncementBanner />
+      <MainAppView localId={selectedLocalId} onResetLocal={handleResetLocal} onLogout={handleLogout} />
+    </div>
+  );
 };
 
 const App: React.FC = () => {

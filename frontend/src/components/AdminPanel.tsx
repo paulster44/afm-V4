@@ -16,7 +16,7 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
     });
 };
 
-type AdminPanelView = 'scanner' | 'usage' | 'users';
+type AdminPanelView = 'scanner' | 'usage' | 'users' | 'announcements';
 
 type PlatformUser = {
     id: string;
@@ -45,6 +45,11 @@ const AdminPanel: React.FC = () => {
     // Users State
     const [users, setUsers] = useState<PlatformUser[]>([]);
     const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
+
+    // Announcements State
+    const [announcementText, setAnnouncementText] = useState('');
+    const [isPublishing, setIsPublishing] = useState(false);
+    const [publishMessage, setPublishMessage] = useState({ type: '', text: '' });
 
     useEffect(() => {
         if (view === 'users' && isGod) {
@@ -86,6 +91,32 @@ const AdminPanel: React.FC = () => {
         } catch (err) {
             console.error('Role update error:', err);
             alert('Error connecting to API.');
+        }
+    };
+
+    const handlePublishAnnouncement = async () => {
+        if (!announcementText.trim()) return;
+        setIsPublishing(true);
+        setPublishMessage({ type: '', text: '' });
+
+        try {
+            const res = await fetch('/api/admin/announcements', {
+                method: 'POST',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: announcementText })
+            });
+
+            if (res.ok) {
+                setPublishMessage({ type: 'success', text: 'Announcement published successfully! It is now live for all users.' });
+                setAnnouncementText('');
+            } else {
+                setPublishMessage({ type: 'error', text: 'Failed to publish announcement.' });
+            }
+        } catch (err) {
+            console.error('Publish error:', err);
+            setPublishMessage({ type: 'error', text: 'Error connecting to API.' });
+        } finally {
+            setIsPublishing(false);
         }
     };
 
@@ -207,6 +238,9 @@ const AdminPanel: React.FC = () => {
                         <button onClick={() => setView('usage')} className={tabClasses('usage')}>
                             Usage Stats
                         </button>
+                        <button onClick={() => setView('announcements')} className={tabClasses('announcements')}>
+                            Announcements
+                        </button>
                         {isGod && (
                             <button onClick={() => setView('users')} className={tabClasses('users')}>
                                 Users & Roles ⚡️
@@ -326,6 +360,41 @@ const AdminPanel: React.FC = () => {
 
                 {view === 'usage' && (
                     <UsageDashboard />
+                )}
+
+                {view === 'announcements' && (
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-lg max-w-2xl">
+                        <h2 className="text-xl font-bold mb-4">Global Announcement</h2>
+                        <p className="text-sm text-gray-400 mb-6">
+                            Publish a message that will appear as a banner at the top of the screen for all users.
+                            Publishing a new announcement will immediately replace any currently active announcement.
+                        </p>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-300 mb-2">Announcement Message</label>
+                            <textarea
+                                value={announcementText}
+                                onChange={(e) => setAnnouncementText(e.target.value)}
+                                rows={4}
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="E.g., System maintenance scheduled for tonight at 2 AM EST..."
+                            />
+                        </div>
+
+                        {publishMessage.text && (
+                            <div className={`mb-4 p-3 rounded-md text-sm ${publishMessage.type === 'success' ? 'bg-emerald-900/50 text-emerald-200' : 'bg-red-900/50 text-red-200'}`}>
+                                {publishMessage.text}
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handlePublishAnnouncement}
+                            disabled={!announcementText.trim() || isPublishing}
+                            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors flex items-center"
+                        >
+                            {isPublishing ? 'Publishing...' : 'Publish Announcement'}
+                        </button>
+                    </div>
                 )}
             </main>
         </div>

@@ -18,6 +18,7 @@ model User {
   memberships  Membership[]
   oauths       OAuthAccount[]
   contracts    Contract[]
+  announcements Announcement[]
 }
 
 model OAuthAccount {
@@ -109,4 +110,15 @@ model ContractVersion {
   createdAt      DateTime @default(now())
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model Announcement {
+  id              String   @id @default(uuid())
+  message         String
+  isActive        Boolean  @default(true)
+  createdByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
 }
