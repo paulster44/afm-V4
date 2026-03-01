@@ -154,6 +154,18 @@ const calculateEngagement = (formData: FormData, contractType: ContractType, per
         totalCost += perDiem + travelExpenses;
     }
 
+    // --- Dynamic Currency Fields (e.g., Tips, Custom Costs) ---
+    const ignoredCurrencyFields = ['rehearsalRate', 'scaleWages', 'totalScaleWages', 'perDiem', 'travelExpenses', 'healthContributionAmount', 'pensionContributionPercentage'];
+    contractType.fields.forEach(field => {
+        if (field.type === 'currency' && !ignoredCurrencyFields.includes(field.id)) {
+            const val = getVal(field.id);
+            if (val > 0) {
+                results.push({ id: field.id, label: field.label, value: val });
+                totalCost += val;
+            }
+        }
+    });
+
     results.push({ id: 'totalBenefits', label: 'Total Benefits', value: totalBenefits });
     results.push({ id: 'totalEngagementCost', label: 'Total Engagement Cost', value: totalCost });
     return results;
@@ -184,6 +196,8 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
     const { savedContracts, saveContract, updateContract, deleteContract } = useContractStorage(config.localId, userId);
 
     const [draftToRestore, setDraftToRestore] = useState<{ formData: FormData, personnel: Person[] } | null>(null);
+    const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+    const [snapshotNote, setSnapshotNote] = useState<string>('');
     const draftSaveTimeoutRef = useRef<number | null>(null);
     const [isSwitchingType, setIsSwitchingType] = useState(false);
 
@@ -247,6 +261,8 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
         setLoadedContractId(null);
         setFormErrors({});
         setOpenAccordion(ct ? orderedGroupNames[0] : null);
+        setActiveVersionId(null);
+        setSnapshotNote('');
     };
 
     useEffect(() => {
@@ -386,7 +402,10 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
         }
     };
 
-    const handleChange = (id: string, value: string | number) => setFormData(prev => ({ ...prev, [id]: value }));
+    const handleChange = (id: string, value: string | number) => {
+        setFormData(prev => ({ ...prev, [id]: value }));
+        setActiveVersionId(null);
+    };
     const calculationResults = useMemo(() => contractType ? calculateEngagement(formData, contractType, personnel) : [], [formData, contractType, personnel]);
     const currency = contractType?.currency || config.currency;
 
@@ -454,29 +473,38 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
 
     const handleSaveVersion = () => {
         if (!contractType) return;
-        const totalCostResult = calculationResults.find(r => r.id === 'totalEngagementCost');
+        const finalName = snapshotNote.trim() || `Version ${currentVersions.length + 1}`;
+
         const newVersion: ContractVersion = {
             id: new Date().toISOString(),
-            name: `Version @ ${formatCurrency(totalCostResult?.value ?? 0, currency.code, currency.symbol)}`,
+            name: finalName,
             formData,
             personnel,
             createdAt: new Date().toISOString(),
             contractTypeId: selectedContractTypeId,
         };
         setCurrentVersions(prev => [...prev, newVersion]);
+        setSnapshotNote('');
+        setActiveVersionId(newVersion.id);
     };
 
     const handleSaveContract = async () => {
         if (!contractType) return;
 
+        // Compute activeVersionIndex from activeVersionId
+        const versionIndex = activeVersionId
+            ? currentVersions.findIndex(v => v.id === activeVersionId)
+            : null;
+        const activeIdx = versionIndex !== null && versionIndex >= 0 ? versionIndex : null;
+
         if (loadedContractId) {
-            const success = await updateContract(loadedContractId, formData, currentVersions, selectedContractTypeId, personnel);
+            const success = await updateContract(loadedContractId, formData, currentVersions, selectedContractTypeId, personnel, activeIdx);
             if (success) {
                 alert('Contract updated successfully!');
                 clearDraft(selectedContractTypeId);
             }
         } else {
-            const newContract = await saveContract(formData, currentVersions, selectedContractTypeId, personnel);
+            const newContract = await saveContract(formData, currentVersions, selectedContractTypeId, personnel, activeIdx);
             if (newContract) {
                 alert('Contract saved successfully!');
                 setLoadedContractId(newContract.id);
@@ -512,12 +540,24 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
         setLoadedContractId(contract.id);
         setIsOpeningContract(false);
         setDraftToRestore(null);
+        // Restore the active version from the saved activeVersionIndex
+        const savedIdx = contract.activeVersionIndex;
+        if (savedIdx !== null && savedIdx !== undefined && savedIdx >= 0 && savedIdx < contract.versions.length) {
+            setActiveVersionId(contract.versions[savedIdx].id);
+        } else if (contract.versions.length > 0) {
+            setActiveVersionId(contract.versions[contract.versions.length - 1].id);
+        } else {
+            setActiveVersionId(null);
+        }
         window.scrollTo(0, 0);
     };
 
     const handleDeleteCurrentVersion = (id: string) => setCurrentVersions(prev => prev.filter(v => v.id !== id));
 
-    const handleAddMusician = () => setPersonnel(p => [...p, { id: Date.now().toString(), name: '', address: '', presentForRehearsal: true, role: 'sideperson', doubling: false, cartage: false, cartageInstrumentId: '' }]);
+    const handleAddMusician = () => {
+        setPersonnel(p => [...p, { id: Date.now().toString(), name: '', address: '', presentForRehearsal: true, role: 'sideperson', doubling: false, cartage: false, cartageInstrumentId: '' }]);
+        setActiveVersionId(null);
+    };
     const handleRemoveMusician = (id: string) => {
         setPersonnel(p => {
             const newPersonnel = p.filter(musician => musician.id !== id);
@@ -527,6 +567,7 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
             return newPersonnel;
         });
         setPersonnelSsns(s => { const newSsns = { ...s }; delete newSsns[id]; return newSsns; });
+        setActiveVersionId(null);
     }
     const handlePersonnelChange = (id: string, field: keyof Omit<Person, 'id' | 'role'>, value: string | boolean) => {
         setPersonnel(p => p.map(musician => {
@@ -537,12 +578,14 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
             }
             return updatedMusician;
         }));
+        setActiveVersionId(null);
     }
     const handleRoleChange = (leaderId: string) => {
         setPersonnel(p => p.map(musician => ({
             ...musician,
             role: musician.id === leaderId ? 'leader' : 'sideperson'
         })));
+        setActiveVersionId(null);
     };
 
     const checkForDuplicateMusician = (id: string) => {
@@ -720,8 +763,20 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                         </div>
                         <div className="bg-slate-800 border border-slate-700 p-6 rounded-lg shadow-xl space-y-4">
                             <h3 className="text-xl font-bold font-serif text-slate-100 mb-2 tracking-wide">Actions</h3>
-                            <button onClick={handleSaveVersion} className="w-full bg-slate-700 text-slate-100 font-bold py-2.5 px-4 rounded-md hover:bg-slate-600 transition-colors shadow-sm">Save Version</button>
-                            <button onClick={handleSaveContract} className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-indigo-500 transition-colors shadow-sm">{loadedContractId ? 'Update Contract' : 'Save Contract'}</button>
+
+                            <div className="space-y-2 border-b border-slate-700 pb-5">
+                                <label className="block text-xs font-medium text-slate-400">Save Current Snapshot</label>
+                                <input
+                                    type="text"
+                                    placeholder="Note for snapshot (optional)"
+                                    value={snapshotNote}
+                                    onChange={(e) => setSnapshotNote(e.target.value)}
+                                    className="block w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-50 sm:text-sm"
+                                />
+                                <button onClick={handleSaveVersion} className="w-full bg-slate-700 text-slate-100 font-bold py-2.5 px-4 rounded-md hover:bg-slate-600 transition-colors shadow-sm">Save Version Snapshot</button>
+                            </div>
+
+                            <button onClick={handleSaveContract} className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-indigo-500 transition-colors shadow-sm mt-4">{loadedContractId ? 'Update Master Contract' : 'Save Master Contract'}</button>
                             <div className="border-t border-slate-700 !my-5"></div>
                             <button onClick={() => setIsOpeningContract(true)} className="w-full bg-slate-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-slate-500 transition-colors shadow-sm">Open Contract</button>
                             <div className="flex space-x-3">
@@ -732,17 +787,27 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                             <button onClick={handleResetContract} className="w-full bg-red-600/90 text-white font-bold py-2.5 px-4 rounded-md hover:bg-red-500 transition-colors shadow-sm">Start New Contract</button>
                         </div>
                         {currentVersions.length > 0 && (
-                            <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                                <h3 className="text-lg font-bold text-white mb-4">Current Versions</h3>
-                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-2">{currentVersions.map(v => (
-                                    <li key={v.id} className="p-2 bg-gray-700 rounded-md flex justify-between items-center text-sm">
-                                        <span className="font-medium text-gray-200">{v.name}</span>
-                                        <div className="flex space-x-2">
-                                            <button onClick={() => { setFormData(v.formData); setPersonnel(v.personnel) }} className="text-blue-500 hover:text-blue-700">Load</button>
-                                            <button onClick={() => handleDeleteCurrentVersion(v.id)} className="text-red-500 hover:text-red-700">Del</button>
-                                        </div>
-                                    </li>
-                                ))}</ul>
+                            <div className="bg-slate-800 p-6 rounded-lg shadow-lg border border-slate-700">
+                                <h3 className="text-lg font-bold text-slate-200 mb-4">Saved Snapshots</h3>
+                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-2">{currentVersions.map(v => {
+                                    const vResults = contractType ? calculateEngagement(v.formData, contractType, v.personnel) : [];
+                                    const vTotal = vResults.find(r => r.id === 'totalEngagementCost');
+                                    const vCostStr = formatCurrency(vTotal?.value ?? 0, currency.code, currency.symbol);
+                                    return (
+                                        <li key={v.id} className={`p-3 rounded-md flex justify-between items-center text-sm ${activeVersionId === v.id ? 'bg-indigo-900/60 border border-indigo-500/50' : 'bg-slate-900 border border-slate-700'}`}>
+                                            <span className="font-medium text-slate-200 flex items-center gap-2">
+                                                {v.name} ({vCostStr})
+                                                {activeVersionId === v.id && (
+                                                    <span className="text-emerald-400 text-xs ml-1 bg-emerald-900/40 px-2 py-0.5 rounded-full border border-emerald-800" title="Active Version">★ Active</span>
+                                                )}
+                                            </span>
+                                            <div className="flex space-x-3 text-xs font-semibold uppercase tracking-wider">
+                                                <button onClick={() => { setFormData(v.formData); setPersonnel(v.personnel); setActiveVersionId(v.id); window.scrollTo(0, 0); }} className="text-indigo-400 hover:text-indigo-300">Load</button>
+                                                <button onClick={() => handleDeleteCurrentVersion(v.id)} className="text-red-400 hover:text-red-300">Del</button>
+                                            </div>
+                                        </li>
+                                    );
+                                })}</ul>
                             </div>
                         )}
                     </div>

@@ -33,15 +33,26 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /api/contracts
-// Creates a new contract
+// Creates a new contract with optional version snapshots
 router.post('/', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user!.id;
-        const { localId, contractTypeId, name, baseFormData, personnel } = req.body;
+        const { localId, contractTypeId, name, baseFormData, personnel, versions, activeVersionIndex } = req.body;
 
         if (!localId || !contractTypeId || !name) {
             return res.status(400).json({ error: 'localId, contractTypeId, and name are required' });
         }
+
+        const versionsData = Array.isArray(versions) && versions.length > 0
+            ? {
+                create: versions.map((v: any) => ({
+                    name: v.name,
+                    formData: v.formData ?? {},
+                    personnel: v.personnel ?? [],
+                    contractTypeId: v.contractTypeId ?? contractTypeId
+                }))
+            }
+            : undefined;
 
         const contract = await prisma.contract.create({
             data: {
@@ -51,8 +62,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 name,
                 baseFormData: baseFormData ?? {},
                 personnel: personnel ?? [],
+                ...(versionsData ? { versions: versionsData } : {}),
+                activeVersionIndex: activeVersionIndex ?? null,
             },
-            include: { versions: true },
+            include: { versions: { orderBy: { createdAt: 'asc' } } },
         });
 
         res.status(201).json({ contract });
@@ -68,13 +81,29 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user!.id;
         const { id } = req.params;
-        const { contractTypeId, name, baseFormData, personnel } = req.body;
+        const { contractTypeId, name, baseFormData, personnel, versions, activeVersionIndex } = req.body;
 
         // Verify ownership
         const existing = await prisma.contract.findFirst({ where: { id, userId } });
 
         if (!existing) {
             return res.status(404).json({ error: 'Contract not found or access denied' });
+        }
+
+        // Build the versions update object
+        let versionsUpdate: any = undefined;
+        if (Array.isArray(versions)) {
+            versionsUpdate = {
+                deleteMany: {},
+                ...(versions.length > 0 ? {
+                    create: versions.map((v: any) => ({
+                        name: v.name,
+                        formData: v.formData ?? {},
+                        personnel: v.personnel ?? [],
+                        contractTypeId: v.contractTypeId ?? contractTypeId
+                    }))
+                } : {})
+            };
         }
 
         const contract = await prisma.contract.update({
@@ -84,6 +113,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
                 name: name ?? existing.name,
                 baseFormData: baseFormData ?? existing.baseFormData,
                 personnel: personnel ?? existing.personnel,
+                ...(versionsUpdate ? { versions: versionsUpdate } : {}),
+                activeVersionIndex: activeVersionIndex ?? existing.activeVersionIndex,
             },
             include: { versions: { orderBy: { createdAt: 'asc' } } },
         });

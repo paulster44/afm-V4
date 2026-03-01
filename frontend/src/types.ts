@@ -144,4 +144,5 @@ export type SavedContract = {
   updatedAt: string;
   versions: ContractVersion[];
   personnel: Person[];
+  activeVersionIndex: number | null;
 };

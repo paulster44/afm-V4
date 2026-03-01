@@ -26,6 +26,7 @@ const apiToSavedContract = (c: any): SavedContract => ({
   personnel: migratePersonnel(c.personnel),
   createdAt: c.createdAt,
   updatedAt: c.updatedAt,
+  activeVersionIndex: c.activeVersionIndex ?? null,
   versions: (c.versions || []).map((v: any) => ({
     id: v.id,
     name: v.name,
@@ -63,7 +64,7 @@ export const useContractStorage = (localId: number, userId: string) => {
   }, [localId, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveContract = useCallback(
-    async (baseFormData: FormData, _versions: ContractVersion[], contractTypeId: string, personnel: Person[]): Promise<SavedContract | null> => {
+    async (baseFormData: FormData, versions: ContractVersion[], contractTypeId: string, personnel: Person[], activeVersionIndex: number | null): Promise<SavedContract | null> => {
       const name = String(
         baseFormData.purchaserName || baseFormData.recordCompanyName ||
         baseFormData.artistName || 'Unnamed Contract'
@@ -78,16 +79,26 @@ export const useContractStorage = (localId: number, userId: string) => {
         return null;
       }
       try {
+        const payload = {
+          localId,
+          contractTypeId,
+          name: `${name} (${date})`,
+          baseFormData,
+          personnel,
+          versions: versions.map(v => ({
+            name: v.name,
+            formData: v.formData,
+            personnel: v.personnel,
+            contractTypeId: v.contractTypeId
+          })),
+          activeVersionIndex,
+        };
+        console.log('[useContractStorage] saveContract payload:', payload);
+
         const res = await fetch('/api/contracts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            localId,
-            contractTypeId,
-            name: `${name} (${date})`,
-            baseFormData,
-            personnel,
-          }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error('Save failed');
         const data = await res.json();
@@ -103,22 +114,32 @@ export const useContractStorage = (localId: number, userId: string) => {
   );
 
   const updateContract = useCallback(
-    async (contractId: string, baseFormData: FormData, _versions: ContractVersion[], contractTypeId: string, personnel: Person[]): Promise<boolean> => {
+    async (contractId: string, baseFormData: FormData, versions: ContractVersion[], contractTypeId: string, personnel: Person[], activeVersionIndex: number | null): Promise<boolean> => {
       const name = String(
         baseFormData.purchaserName || baseFormData.recordCompanyName ||
         baseFormData.artistName || 'Unnamed Contract'
       );
       const date = String(baseFormData.engagementDate || baseFormData.sessionDate || '');
       try {
+        const payload = {
+          contractTypeId,
+          name: `${name} (${date})`,
+          baseFormData,
+          personnel,
+          versions: versions.map(v => ({
+            name: v.name,
+            formData: v.formData,
+            personnel: v.personnel,
+            contractTypeId: v.contractTypeId
+          })),
+          activeVersionIndex,
+        };
+        console.log('[useContractStorage] updateContract payload:', payload);
+
         const res = await fetch(`/api/contracts/${contractId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            contractTypeId,
-            name: `${name} (${date})`,
-            baseFormData,
-            personnel,
-          }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) throw new Error('Update failed');
         const data = await res.json();

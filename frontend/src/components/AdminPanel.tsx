@@ -222,7 +222,7 @@ const AdminPanel: React.FC = () => {
                     <div>
                         <h1 className="text-2xl font-bold leading-tight text-white flex items-center gap-2">
                             <a href="/#" className="hover:text-indigo-400">Admin Panel</a>
-                            <span className="text-xs bg-indigo-900 text-indigo-200 py-1 px-2 rounded-full border border-indigo-700">v8.1</span>
+                            <span className="text-xs bg-indigo-900 text-indigo-200 py-1 px-2 rounded-full border border-indigo-700">v4.0</span>
                         </h1>
                         <p className="text-sm text-gray-400">Manage contract configurations, roles, and usage.</p>
                     </div>

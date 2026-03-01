@@ -89,6 +89,11 @@ const LocalConfigEditor: React.FC = () => {
 
     const handleSave = async () => {
         setMessage({ type: '', text: '' });
+
+        if (!window.confirm("Are you sure you want to save this configuration?")) {
+            return;
+        }
+
         if (!formId || !formName) {
             setMessage({ type: 'error', text: 'Local ID and Name are required.' });
             return;
