@@ -11,9 +11,6 @@
       ]
     }
   ],
-  "dataconnect": {
-    "source": "dataconnect"
-  },
   "hosting": {
     "public": "frontend/dist",
     "ignore": [
