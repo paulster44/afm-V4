@@ -223,5 +223,9 @@ export const generatePdf = (
     // --- Save PDF ---
     const safeFileName = (str: string | number | undefined) => String(str || '').replace(/[^a-z0-9]/gi, '_');
     const fileName = `${safeFileName(contractType.formIdentifier)}_${safeFileName(formData.purchaserName || formData.recordCompanyName || 'contract')}.pdf`;
-    doc.save(fileName.toLowerCase());
+
+    return {
+        blob: doc.output('blob'),
+        fileName: fileName.toLowerCase()
+    };
 };

@@ -6,7 +6,9 @@ import { useContractStorage } from '../hooks/useContractStorage';
 import DynamicField from './DynamicField';
 import Accordion from './Accordion';
 import OpenContractModal from './OpenContractModal';
+import EmailModal from './EmailModal';
 import { generatePdf } from '../services/pdfGenerator';
+import { auth } from '../utils/firebase';
 
 // Helper for currency formatting
 const formatCurrency = (value: number, _currencyCode: string, symbol: string) => {
@@ -173,6 +175,8 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
     const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
     const [openAccordion, setOpenAccordion] = useState<string | null>(null);
     const [isOpeningContract, setIsOpeningContract] = useState(false);
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [contractTypeFilter, setContractTypeFilter] = useState('');
 
     const [currentVersions, setCurrentVersions] = useState<ContractVersion[]>([]);
@@ -386,7 +390,67 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
     const calculationResults = useMemo(() => contractType ? calculateEngagement(formData, contractType, personnel) : [], [formData, contractType, personnel]);
     const currency = contractType?.currency || config.currency;
 
-    const handlePdfGeneration = () => contractType && generatePdf(config, contractType, formData, calculationResults, personnel);
+    const handlePdfGeneration = () => {
+        if (!contractType) return;
+        const { blob, fileName } = generatePdf(config, contractType, formData, calculationResults, personnel);
+
+        // Trigger download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    const handleEmailPdf = async (email: string, message: string) => {
+        if (!contractType) return;
+
+        setIsSendingEmail(true);
+        try {
+            const { blob, fileName } = generatePdf(config, contractType, formData, calculationResults, personnel);
+
+            const currentUser = auth.currentUser;
+            const token = currentUser ? await currentUser.getIdToken() : '';
+
+            const formDataPayload = new FormData();
+            formDataPayload.append('to', email);
+            formDataPayload.append('message', message);
+            formDataPayload.append('pdf', blob, fileName);
+
+            // Allow the user to specify a subject
+            const subject = `Smart Contract PDF: ${fileName.replace('.pdf', '')}`;
+            formDataPayload.append('subject', subject);
+
+            // If we are developing locally, port 8080 usually handles the API
+            // Production will route /api nicely, but dev might need explicit mapping
+            const apiUrl = import.meta.env.DEV ? 'http://localhost:8080/api/email' : '/api/email';
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                    // Do NOT set Content-Type header with FormData, fetch handles the boundary automatically
+                },
+                body: formDataPayload
+            });
+
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Failed to send email');
+            }
+
+            alert('Email sent successfully!');
+            setIsEmailModalOpen(false);
+        } catch (error: any) {
+            console.error("Email send error:", error);
+            alert(`Error sending email: ${error.message}`);
+        } finally {
+            setIsSendingEmail(false);
+        }
+    };
 
     const handleSaveVersion = () => {
         if (!contractType) return;
@@ -505,6 +569,12 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
     return (
         <>
             {isOpeningContract && <OpenContractModal isOpen={isOpeningContract} onClose={() => setIsOpeningContract(false)} savedContracts={savedContracts} onLoadContract={handleLoadContract} onDeleteContract={deleteContract} />}
+            <EmailModal
+                isOpen={isEmailModalOpen}
+                onClose={() => setIsEmailModalOpen(false)}
+                onSend={handleEmailPdf}
+                isSending={isSendingEmail}
+            />
 
             {!contractType ? (
                 <div className="bg-slate-800/90 p-8 rounded-lg shadow-xl text-center border border-slate-700">
@@ -601,11 +671,11 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                                         <div>
                                                             <label className="text-xs text-slate-400 block mb-1.5 uppercase tracking-wider font-semibold">Name</label>
-                                                            <input type="text" value={p.name} onChange={e => handlePersonnelChange(p.id, 'name', e.target.value)} onBlur={() => checkForDuplicateMusician(p.id)} className="block w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 text-slate-50 sm:text-sm transition-shadow" />
+                                                            <input type="text" value={p.name} onChange={e => handlePersonnelChange(p.id, 'name', e.target.value)} onBlur={() => checkForDuplicateMusician(p.id)} className="block w-full px-4 py-2 min-h-[44px] leading-normal appearance-none bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 text-slate-50 sm:text-sm transition-shadow" />
                                                         </div>
                                                         <div>
                                                             <label className="text-xs text-slate-400 block mb-1.5 uppercase tracking-wider font-semibold">Address</label>
-                                                            <input type="text" value={p.address} onChange={e => handlePersonnelChange(p.id, 'address', e.target.value)} onBlur={() => checkForDuplicateMusician(p.id)} className="block w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 text-slate-50 sm:text-sm transition-shadow" />
+                                                            <input type="text" value={p.address} onChange={e => handlePersonnelChange(p.id, 'address', e.target.value)} onBlur={() => checkForDuplicateMusician(p.id)} className="block w-full px-4 py-2 min-h-[44px] leading-normal appearance-none bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 text-slate-50 sm:text-sm transition-shadow" />
                                                         </div>
                                                     </div>
 
@@ -629,7 +699,7 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
 
                                                     <div className="mt-2">
                                                         <label className="text-xs text-slate-400 block mb-1.5 uppercase tracking-wider font-semibold">SSN / SIN (not saved, for PDF only)</label>
-                                                        <input type="text" value={personnelSsns[p.id] || ''} onChange={e => handleSsnChange(p.id, e.target.value)} className="block w-full px-4 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 sm:text-sm transition-shadow text-slate-50 placeholder-slate-500" placeholder="Enter on final PDF for security" />
+                                                        <input type="text" value={personnelSsns[p.id] || ''} onChange={e => handleSsnChange(p.id, e.target.value)} className="block w-full px-4 py-2 min-h-[44px] leading-normal appearance-none bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 sm:text-sm transition-shadow text-slate-50 placeholder-slate-500" placeholder="Enter on final PDF for security" />
                                                     </div>
                                                 </div>
                                             ))}
@@ -654,7 +724,10 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                             <button onClick={handleSaveContract} className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-indigo-500 transition-colors shadow-sm">{loadedContractId ? 'Update Contract' : 'Save Contract'}</button>
                             <div className="border-t border-slate-700 !my-5"></div>
                             <button onClick={() => setIsOpeningContract(true)} className="w-full bg-slate-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-slate-500 transition-colors shadow-sm">Open Contract</button>
-                            <button onClick={handlePdfGeneration} className="w-full bg-emerald-600 text-white font-bold py-3 px-4 rounded-md hover:bg-emerald-500 transition-colors shadow-md text-base">Generate PDF</button>
+                            <div className="flex space-x-3">
+                                <button onClick={handlePdfGeneration} className="w-1/2 bg-emerald-600 text-white font-bold py-3 px-4 rounded-md hover:bg-emerald-500 transition-colors shadow-md text-base">Download PDF</button>
+                                <button onClick={() => setIsEmailModalOpen(true)} className="w-1/2 bg-sky-600 text-white font-bold py-3 px-4 rounded-md hover:bg-sky-500 transition-colors shadow-md text-base">Email PDF</button>
+                            </div>
                             <div className="border-t border-slate-700 !my-5"></div>
                             <button onClick={handleResetContract} className="w-full bg-red-600/90 text-white font-bold py-2.5 px-4 rounded-md hover:bg-red-500 transition-colors shadow-sm">Start New Contract</button>
                         </div>

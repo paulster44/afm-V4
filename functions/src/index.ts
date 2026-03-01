@@ -16,6 +16,7 @@ import contractRoutes from './routes/contracts';
 import adminRoutes from './routes/admin';
 import announcementRoutes from './routes/announcements';
 import localsRoutes from './routes/locals';
+import emailRoutes from './routes/email';
 
 // Run DB migrations asynchronously in the background after startup
 // so the HTTP server can pass health checks immediately
@@ -63,10 +64,6 @@ router.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-
-
-
-
 router.use('/auth', authRoutes);
 router.use('/workspaces', workspaceRoutes);
 router.use('/items', itemRoutes);
@@ -74,6 +71,7 @@ router.use('/contracts', contractRoutes);
 router.use('/admin', adminRoutes);
 router.use('/announcements', announcementRoutes);
 router.use('/locals', localsRoutes);
+router.use('/email', emailRoutes);
 
 app.use('/api', router);
 app.use('/', router);
@@ -82,3 +80,10 @@ import { onRequest } from 'firebase-functions/v2/https';
 
 // Export the Express app as a Firebase Cloud Function
 export const api = onRequest({ memory: "512MiB" }, app);
+
+// If running as a standalone Node process (like in Cloud Run or local dev), start the server
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server listening on port ${port}`);
+  });
+}

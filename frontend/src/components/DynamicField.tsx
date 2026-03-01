@@ -13,7 +13,7 @@ type DynamicFieldProps = {
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
 };
 
-const baseInputClasses = "mt-1 block w-full px-4 py-2.5 bg-slate-900 border text-slate-50 transition-shadow rounded-md shadow-sm placeholder-slate-500 focus:outline-none sm:text-sm";
+const baseInputClasses = "mt-1 block w-full px-4 py-2 min-h-[44px] leading-normal bg-slate-900 border text-slate-50 transition-shadow rounded-md shadow-sm placeholder-slate-500 focus:outline-none sm:text-sm appearance-none";
 const normalBorderClasses = "border-slate-600 focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
 const errorBorderClasses = "border-red-400 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900";
 
