@@ -15,6 +15,7 @@ import itemRoutes from './routes/items';
 import contractRoutes from './routes/contracts';
 import adminRoutes from './routes/admin';
 import announcementRoutes from './routes/announcements';
+import localsRoutes from './routes/locals';
 
 // Run DB migrations asynchronously in the background after startup
 // so the HTTP server can pass health checks immediately
@@ -64,12 +65,15 @@ router.get('/health', (req, res) => {
 
 
 
+
+
 router.use('/auth', authRoutes);
 router.use('/workspaces', workspaceRoutes);
 router.use('/items', itemRoutes);
 router.use('/contracts', contractRoutes);
 router.use('/admin', adminRoutes);
 router.use('/announcements', announcementRoutes);
+router.use('/locals', localsRoutes);
 
 app.use('/api', router);
 app.use('/', router);

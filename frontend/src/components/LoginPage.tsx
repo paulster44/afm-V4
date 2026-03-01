@@ -154,11 +154,7 @@ const LoginPage: React.FC = () => {
           </button>
         </div>
 
-        <div className="text-center text-xs text-gray-500 mt-8 pt-4 border-t border-gray-700">
-          <a href="/public/Changelog.md" target="_blank" rel="noopener noreferrer" className="hover:text-gray-400 underline">
-            View Changelog
-          </a>
-        </div>
+
       </div>
     </div>
   );

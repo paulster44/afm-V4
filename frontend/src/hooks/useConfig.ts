@@ -18,23 +18,17 @@ export const useConfig = (localId: number) => {
         const isJsonResponse = (r: Response) =>
           r.ok && (r.headers.get('content-type') ?? '').includes('json');
 
-        let response = await fetch(`/configs/local_${localId}.json`);
+        const response = await fetch(`/api/locals/${localId}`);
         if (!isJsonResponse(response)) {
-          response = await fetch(`/configs/local_default.json`);
-          if (!isJsonResponse(response)) {
-            throw new Error(`Could not load configuration for local ${localId}.`);
-          }
+          throw new Error(`Could not load configuration for local ${localId}. The API might be down or the local configuration does not exist in the database.`);
         }
-        const rawData = await response.json();
-        // Inject the correct localId and localName from locals.json if using default
-        const localsRes = await fetch('/configs/locals.json');
-        const localsData = localsRes.ok ? await localsRes.json() : { locals: [] };
-        const localInfo = localsData.locals.find((l: { id: number; name: string }) => l.id === localId);
-        const data: Config = {
-          ...rawData,
-          localId,
-          localName: localInfo?.name ?? rawData.localName,
-        };
+        const data = await response.json();
+
+        // Ensure localId is attached
+        if (!data.localId) {
+          data.localId = localId;
+        }
+
         setConfig(data);
       } catch (err) {
         if (err instanceof Error) {

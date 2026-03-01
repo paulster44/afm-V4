@@ -22,9 +22,9 @@ const LocalSelector: React.FC<LocalSelectorProps> = ({ onSelectLocal, onLogout }
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch('/configs/locals.json');
+        const response = await fetch('/api/locals');
         if (!response.ok) {
-          throw new Error('Failed to load the list of locals. Please ensure `public/configs/locals.json` is available.');
+          throw new Error('Failed to load the list of locals from the database API.');
         }
         const data = await response.json();
         setLocals(data.locals);

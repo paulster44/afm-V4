@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import UsageDashboard from './UsageDashboard';
 import { useAuth } from '../contexts/AuthContext';
+import LocalConfigEditor from './LocalConfigEditor';
 
 const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -16,7 +17,7 @@ const blobToBase64 = (blob: Blob): Promise<string> => {
     });
 };
 
-type AdminPanelView = 'scanner' | 'usage' | 'users' | 'announcements';
+type AdminPanelView = 'scanner' | 'usage' | 'users' | 'announcements' | 'locals';
 
 type PlatformUser = {
     id: string;
@@ -219,8 +220,9 @@ const AdminPanel: React.FC = () => {
             <header className="bg-gray-800 shadow-md">
                 <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
                     <div>
-                        <h1 className="text-2xl font-bold leading-tight text-white">
+                        <h1 className="text-2xl font-bold leading-tight text-white flex items-center gap-2">
                             <a href="/#" className="hover:text-indigo-400">Admin Panel</a>
+                            <span className="text-xs bg-indigo-900 text-indigo-200 py-1 px-2 rounded-full border border-indigo-700">v8.0</span>
                         </h1>
                         <p className="text-sm text-gray-400">Manage contract configurations, roles, and usage.</p>
                     </div>
@@ -242,9 +244,14 @@ const AdminPanel: React.FC = () => {
                             Announcements
                         </button>
                         {isGod && (
-                            <button onClick={() => setView('users')} className={tabClasses('users')}>
-                                Users & Roles ⚡️
-                            </button>
+                            <>
+                                <button onClick={() => setView('locals')} className={tabClasses('locals')}>
+                                    Local Configs ⚡️
+                                </button>
+                                <button onClick={() => setView('users')} className={tabClasses('users')}>
+                                    Users & Roles ⚡️
+                                </button>
+                            </>
                         )}
                     </nav>
                 </div>
@@ -395,6 +402,10 @@ const AdminPanel: React.FC = () => {
                             {isPublishing ? 'Publishing...' : 'Publish Announcement'}
                         </button>
                     </div>
+                )}
+
+                {view === 'locals' && isGod && (
+                    <LocalConfigEditor />
                 )}
             </main>
         </div>

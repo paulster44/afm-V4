@@ -122,3 +122,11 @@ model Announcement {
 
   user User @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
 }
+
+model LocalConfig {
+  id        Int      @id // Corresponds to localId (e.g., 802, 47)
+  name      String
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
