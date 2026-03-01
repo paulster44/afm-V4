@@ -1,175 +1,17 @@
-
-
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import type { Config, ContractType, Field, FormData, CalculationResult, ContractVersion, SavedContract, Person } from '../types';
+import React, { useState, useMemo, useCallback } from 'react';
+import type { Config, ContractType, FormData, Person } from '../types';
 import { useContractStorage } from '../hooks/useContractStorage';
+import { useContractForm } from '../hooks/useContractForm';
+import { usePersonnelRoster } from '../hooks/usePersonnelRoster';
+import { useDraftPersistence } from '../hooks/useDraftPersistence';
+import { useVersionManagement } from '../hooks/useVersionManagement';
 import DynamicField from './DynamicField';
 import Accordion from './Accordion';
 import OpenContractModal from './OpenContractModal';
 import EmailModal from './EmailModal';
 import { generatePdf } from '../services/pdfGenerator';
 import { auth } from '../utils/firebase';
-
-// Helper for currency formatting
-const formatCurrency = (value: number, _currencyCode: string, symbol: string) => {
-    if (typeof value !== 'number' || isNaN(value)) {
-        return `${symbol}0.00`;
-    }
-    const isNegative = value < 0;
-    const fixedValue = Math.abs(value).toFixed(2);
-    return isNegative ? `-${symbol}${fixedValue}` : `${symbol}${fixedValue}`;
-};
-
-// Calculation logic
-const calculateEngagement = (formData: FormData, contractType: ContractType, personnel: Person[]): CalculationResult[] => {
-    const { rules, calculationModel, wageScales } = contractType;
-    if (!rules && calculationModel !== 'contribution_only') return [];
-
-    const results: CalculationResult[] = [];
-    const getVal = (id: string) => Number(formData[id]) || 0;
-
-    const numberOfMusicians = personnel.length;
-    const numberOfRehearsingMusicians = personnel.filter(p => p.presentForRehearsal ?? true).length;
-
-    let totalScaleWages = 0, totalRehearsal = 0, totalOvertime = 0, pensionContribution = 0, healthContribution = 0;
-    let totalPremiums = 0, totalCartage = 0, subtotalWages = 0, pensionableWages = 0, totalCost = 0;
-
-    switch (calculationModel) {
-        case 'live_engagement': {
-            const engagementTypeId = formData.engagementType as string;
-            const baseScale = wageScales?.find(s => s.id === engagementTypeId);
-
-            if (baseScale) {
-                personnel.forEach(person => {
-                    const personScaleWage = baseScale.rate;
-                    totalScaleWages += personScaleWage;
-
-                    // --- Premiums ---
-                    if (person.role === 'leader' && rules?.leaderPremium) {
-                        totalPremiums += personScaleWage * (rules.leaderPremium.rate / 100);
-                    }
-                    if (person.doubling && rules?.doublingPremium) {
-                        totalPremiums += personScaleWage * (rules.doublingPremium.rate / 100);
-                    }
-                });
-
-                // --- Cartage ---
-                personnel.forEach(person => {
-                    if (person.cartage && person.cartageInstrumentId) {
-                        const cartageScale = wageScales?.find(s => s.id === person.cartageInstrumentId);
-                        if (cartageScale) {
-                            totalCartage += cartageScale.rate;
-                        }
-                    }
-                });
-
-                // --- Auto Overtime ---
-                const autoOvertimeHours = Math.max(0, getVal('engagementDuration') - baseScale.duration);
-                if (autoOvertimeHours > 0 && baseScale.duration > 0 && rules?.overtimeRate) {
-                    const baseHourlyRate = baseScale.rate / baseScale.duration;
-                    totalOvertime += autoOvertimeHours * baseHourlyRate * rules.overtimeRate * numberOfMusicians;
-                }
-
-                // --- Manual Overtime ---
-                const manualOvertimeHours = getVal('overtimeHours');
-                if (manualOvertimeHours > 0 && rules?.overtimeRate && baseScale.duration > 0) {
-                    const hourlyRate = baseScale.rate / baseScale.duration;
-                    totalOvertime += manualOvertimeHours * hourlyRate * rules.overtimeRate * numberOfMusicians;
-                }
-
-            } else { // Manual scale logic for T-2 or if no scale selected
-                const totalScaleWagesPerMusician = getVal('totalScaleWages');
-                const engagementDuration = getVal('engagementDuration');
-                const overtimeHours = getVal('overtimeHours');
-                totalScaleWages = totalScaleWagesPerMusician * numberOfMusicians;
-                if (overtimeHours > 0 && engagementDuration > 0 && rules?.overtimeRate) {
-                    const baseHourlyRate = totalScaleWagesPerMusician / engagementDuration;
-                    totalOvertime = overtimeHours * baseHourlyRate * rules.overtimeRate * numberOfMusicians;
-                }
-            }
-
-            totalRehearsal = getVal('rehearsalHours') * getVal('rehearsalRate') * numberOfRehearsingMusicians;
-
-            results.push({ id: 'totalScaleWages', label: 'Total Base Scale Wages', value: totalScaleWages });
-            if (totalPremiums > 0) results.push({ id: 'totalPremiums', label: 'Leader/Doubling Premiums', value: totalPremiums });
-            if (totalCartage > 0) results.push({ id: 'totalCartage', label: 'Total Cartage', value: totalCartage });
-            if (totalRehearsal > 0) results.push({ id: 'totalRehearsalPay', label: 'Total Rehearsal Pay', value: totalRehearsal });
-            if (totalOvertime > 0) results.push({ id: 'totalOvertimePay', label: 'Total Overtime Pay', value: totalOvertime });
-
-            subtotalWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime;
-            results.push({ id: 'subtotalWages', label: 'Subtotal Gross Wages', value: subtotalWages });
-            break;
-        }
-        case 'media_report': {
-            const scaleWagesPerSession = getVal('scaleWages');
-            const numberOfServices = getVal('numberOfServices') || 1;
-            const overtimeHours = getVal('overtimeHours');
-            totalScaleWages = scaleWagesPerSession * numberOfMusicians * numberOfServices;
-            if (overtimeHours > 0 && rules?.overtimeRate) {
-                const baseHourlyRate = scaleWagesPerSession / 3;
-                totalOvertime = overtimeHours * baseHourlyRate * rules.overtimeRate * numberOfMusicians;
-            }
-            results.push({ id: 'totalScaleWages', label: 'Total Session Wages', value: totalScaleWages });
-            if (totalOvertime > 0) results.push({ id: 'overtimePay', label: 'Overtime Pay', value: totalOvertime });
-            subtotalWages = totalScaleWages + totalOvertime;
-            break;
-        }
-        case 'contribution_only': {
-            pensionableWages = getVal('totalPensionableWages');
-            const pensionPercentage = getVal('pensionContributionPercentage');
-            healthContribution = getVal('healthContributionAmount');
-            pensionContribution = pensionableWages * (pensionPercentage / 100);
-            results.push({ id: 'pensionableWages', label: 'Total Pensionable Wages', value: pensionableWages });
-            results.push({ id: 'pensionContribution', label: `Pension Contribution (${pensionPercentage}%)`, value: pensionContribution });
-            if (healthContribution > 0) results.push({ id: 'healthContribution', label: 'Health Contribution', value: healthContribution });
-            totalCost = pensionContribution + healthContribution;
-            results.push({ id: 'totalContributions', label: 'Total Contributions Due', value: totalCost });
-            return results;
-        }
-    }
-
-    pensionableWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime; // Pension is typically on all gross wages
-
-    if (rules?.pensionContribution) {
-        pensionContribution = pensionableWages * (rules.pensionContribution.rate / 100);
-        results.push({ id: 'pensionContribution', label: `Pension (${rules.pensionContribution.description || `${rules.pensionContribution.rate}%`})`, value: pensionContribution });
-    }
-    if (rules?.healthContribution) {
-        const services = calculationModel === 'media_report' ? (getVal('numberOfServices') || 1) : 1;
-        healthContribution = rules.healthContribution.ratePerMusicianPerService * numberOfMusicians * services;
-        results.push({ id: 'healthContribution', label: `Health & Welfare (${rules.healthContribution.description})`, value: healthContribution });
-    }
-    if (rules?.workDues) {
-        results.push({ id: 'workDues', label: `Work Dues (${rules.workDues.description || `${rules.workDues.rate}%`})`, value: pensionableWages * (rules.workDues.rate / 100) });
-    }
-
-    const totalBenefits = pensionContribution + healthContribution;
-    totalCost = subtotalWages + totalBenefits; // Work dues are typically deducted, not added to purchaser cost.
-
-    if (calculationModel === 'live_engagement' && !wageScales) {
-        const perDiem = getVal('perDiem') * numberOfMusicians;
-        const travelExpenses = getVal('travelExpenses');
-        if (perDiem > 0) results.push({ id: 'totalPerDiem', label: 'Total Per Diem', value: perDiem });
-        if (travelExpenses > 0) results.push({ id: 'travelExpenses', label: 'Travel Expenses', value: travelExpenses });
-        totalCost += perDiem + travelExpenses;
-    }
-
-    // --- Dynamic Currency Fields (e.g., Tips, Custom Costs) ---
-    const ignoredCurrencyFields = ['rehearsalRate', 'scaleWages', 'totalScaleWages', 'perDiem', 'travelExpenses', 'healthContributionAmount', 'pensionContributionPercentage'];
-    contractType.fields.forEach(field => {
-        if (field.type === 'currency' && !ignoredCurrencyFields.includes(field.id)) {
-            const val = getVal(field.id);
-            if (val > 0) {
-                results.push({ id: field.id, label: field.label, value: val });
-                totalCost += val;
-            }
-        }
-    });
-
-    results.push({ id: 'totalBenefits', label: 'Total Benefits', value: totalBenefits });
-    results.push({ id: 'totalEngagementCost', label: 'Total Engagement Cost', value: totalCost });
-    return results;
-};
+import { formatCurrency, calculateEngagement } from '../utils/calculations';
 
 type ContractWizardProps = {
     config: Config;
@@ -177,243 +19,106 @@ type ContractWizardProps = {
 };
 
 const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
+    // --- Contract type selection ---
     const [selectedContractTypeId, setSelectedContractTypeId] = useState<string>(config.contractTypes[0]?.id ?? '');
     const contractType = useMemo(() => config.contractTypes.find(c => c.id === selectedContractTypeId), [config.contractTypes, selectedContractTypeId]);
-
-    const [formData, setFormData] = useState<FormData>({});
-    const [personnel, setPersonnel] = useState<Person[]>([]);
-    const [personnelSsns, setPersonnelSsns] = useState<Record<string, string>>({}); // Not persisted for security
-
-    const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
-    const [openAccordion, setOpenAccordion] = useState<string | null>(null);
-    const [isOpeningContract, setIsOpeningContract] = useState(false);
-    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
-    const [isSendingEmail, setIsSendingEmail] = useState(false);
     const [contractTypeFilter, setContractTypeFilter] = useState('');
-
-    const [currentVersions, setCurrentVersions] = useState<ContractVersion[]>([]);
-    const [loadedContractId, setLoadedContractId] = useState<string | null>(null);
-    const { savedContracts, saveContract, updateContract, deleteContract } = useContractStorage(config.localId, userId);
-
-    const [draftToRestore, setDraftToRestore] = useState<{ formData: FormData, personnel: Person[] } | null>(null);
-    const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
-    const [snapshotNote, setSnapshotNote] = useState<string>('');
-    const draftSaveTimeoutRef = useRef<number | null>(null);
-    const [isSwitchingType, setIsSwitchingType] = useState(false);
-
     const filteredContractTypes = useMemo(() => {
-        if (!contractTypeFilter) {
-            return config.contractTypes;
-        }
+        if (!contractTypeFilter) return config.contractTypes;
         return config.contractTypes.filter(ct =>
             ct.name.toLowerCase().includes(contractTypeFilter.toLowerCase())
         );
     }, [config.contractTypes, contractTypeFilter]);
 
-    const getInitialFormData = (ct?: ContractType): FormData => ct ? ct.fields.reduce((acc, field) => ({ ...acc, [field.id]: field.defaultValue ?? '' }), {}) : {};
-    const getInitialPersonnel = (ct?: ContractType): Person[] => ct ? [{ id: Date.now().toString(), name: '', address: '', presentForRehearsal: true, role: 'leader', doubling: false, cartage: false, cartageInstrumentId: '' }] : [];
+    // --- Dirty flag (stays here to avoid circular deps between hooks) ---
+    const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+    const onDirty = useCallback(() => setActiveVersionId(null), []);
 
-    const fieldGroups = useMemo(() => {
-        if (!contractType) return {};
-        return contractType.fields.reduce((acc, field) => {
-            const groupName = field.group || 'Engagement Details';
-            if (!acc[groupName]) acc[groupName] = [];
-            acc[groupName].push(field);
-            return acc;
-        }, {} as Record<string, Field[]>);
-    }, [contractType]);
+    // --- Storage ---
+    const { savedContracts, saveContract, updateContract, deleteContract } = useContractStorage(config.localId, userId);
 
-    const performanceScales = useMemo(() => contractType?.wageScales?.filter(s => !s.id.startsWith('ws_cartage_')) || [], [contractType]);
-    const cartageScales = useMemo(() => contractType?.wageScales?.filter(s => s.id.startsWith('ws_cartage_')) || [], [contractType]);
+    // --- Form state & validation ---
+    const {
+        formData, setFormData, formErrors, openAccordion, setOpenAccordion,
+        fieldGroups, orderedGroupNames, performanceScales, cartageScales,
+        handleChange, handleKeyDown, resetFormState,
+    } = useContractForm({ contractType, onDirty });
 
-    const orderedGroupNames = useMemo(() => {
-        if (!contractType) return [];
-        const groupNamesInOrder = [...new Set(contractType.fields.map(f => f.group || 'Engagement Details'))];
+    // --- Personnel roster ---
+    const {
+        personnel, setPersonnel, personnelSsns, setPersonnelSsns,
+        handleAddMusician, handleRemoveMusician, handlePersonnelChange,
+        handleRoleChange, checkForDuplicateMusician, handleSsnChange,
+        resetPersonnel,
+    } = usePersonnelRoster({ onDirty });
 
-        if (!groupNamesInOrder.includes('Personnel')) {
-            const compIndex = groupNamesInOrder.indexOf('Compensation');
-            if (compIndex !== -1) {
-                groupNamesInOrder.splice(compIndex + 1, 0, 'Personnel');
-            } else {
-                const financialIndex = groupNamesInOrder.indexOf('Financial Terms');
-                if (financialIndex > -1) {
-                    groupNamesInOrder.splice(financialIndex, 0, 'Personnel');
-                } else {
-                    groupNamesInOrder.push('Personnel');
-                }
-            }
-        }
-        return groupNamesInOrder;
-    }, [contractType]);
-
-    const clearDraft = (contractTypeIdToClear: string) => {
-        if (contractTypeIdToClear) {
-            const DRAFT_STORAGE_KEY = `afm_draft_contract_${config.localId}_${userId}_${contractTypeIdToClear}`;
-            localStorage.removeItem(DRAFT_STORAGE_KEY);
-        }
-    };
-
-    const resetForm = (ct?: ContractType) => {
-        setFormData(getInitialFormData(ct));
-        setPersonnel(getInitialPersonnel(ct));
-        setPersonnelSsns({});
-        setCurrentVersions([]);
-        setLoadedContractId(null);
-        setFormErrors({});
-        setOpenAccordion(ct ? orderedGroupNames[0] : null);
+    // --- Orchestrated reset (called by draft and version hooks) ---
+    const resetForm = useCallback((ct?: ContractType) => {
+        resetFormState(ct);
+        resetPersonnel(ct);
         setActiveVersionId(null);
-        setSnapshotNote('');
-    };
+        // Version reset is handled separately by the version hook
+    }, [resetFormState, resetPersonnel]);
 
-    useEffect(() => {
-        if (isSwitchingType) {
-            setIsSwitchingType(false);
-        }
-    }, [selectedContractTypeId]);
+    // --- UI state ---
+    const [isOpeningContract, setIsOpeningContract] = useState(false);
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isSendingEmail, setIsSendingEmail] = useState(false);
 
-    useEffect(() => {
-        if (!contractType || draftToRestore || isSwitchingType) return;
+    // --- Draft persistence ---
+    const {
+        draftToRestore, setDraftToRestore, setIsSwitchingType,
+        clearDraft, handleManualTypeChange, handleRestoreDraft, handleDismissDraft,
+    } = useDraftPersistence({
+        localId: config.localId,
+        userId,
+        contractType,
+        selectedContractTypeId,
+        formData,
+        personnel,
+        configContractTypes: config.contractTypes,
+        onResetForm: (ct?: ContractType) => {
+            resetForm(ct);
+            versions.resetVersions();
+        },
+        onRestoreFormData: setFormData,
+        onRestorePersonnel: setPersonnel,
+        onSetSelectedContractTypeId: setSelectedContractTypeId,
+    });
 
-        if (draftSaveTimeoutRef.current) {
-            clearTimeout(draftSaveTimeoutRef.current);
-        }
+    // --- Version / snapshot management ---
+    const versions = useVersionManagement({
+        selectedContractTypeId,
+        formData,
+        personnel,
+        activeVersionId,
+        setActiveVersionId,
+        saveContract,
+        updateContract,
+        clearDraft,
+        onResetForm: () => {
+            resetForm();
+            versions.resetVersions();
+        },
+        setFormData,
+        setPersonnel,
+        setPersonnelSsns: () => setPersonnelSsns({}),
+        setSelectedContractTypeId,
+        setIsOpeningContract,
+        setDraftToRestore: () => setDraftToRestore(null),
+        setIsSwitchingType,
+        contractType,
+    });
 
-        draftSaveTimeoutRef.current = window.setTimeout(() => {
-            const DRAFT_STORAGE_KEY = `afm_draft_contract_${config.localId}_${userId}_${selectedContractTypeId}`;
-            const draft = { formData, personnel };
-            const isFormEmpty = Object.values(formData).every(v => v === '') && (personnel.length === 1 && !personnel[0]?.name && !personnel[0]?.address);
-            if (!isFormEmpty) {
-                localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-            }
-        }, 500);
-
-        return () => {
-            if (draftSaveTimeoutRef.current) {
-                clearTimeout(draftSaveTimeoutRef.current);
-            }
-        };
-    }, [formData, personnel, contractType, config.localId, userId, selectedContractTypeId, draftToRestore, isSwitchingType]);
-
-    const handleManualTypeChange = (newTypeId: string) => {
-        if (newTypeId === selectedContractTypeId) {
-            return;
-        }
-        setIsSwitchingType(true);
-
-        const newContractType = config.contractTypes.find(c => c.id === newTypeId);
-
-        const DRAFT_STORAGE_KEY = `afm_draft_contract_${config.localId}_${userId}_${newTypeId}`;
-        const savedDraftJson = localStorage.getItem(DRAFT_STORAGE_KEY);
-
-        if (savedDraftJson) {
-            try {
-                const savedDraft = JSON.parse(savedDraftJson);
-                setFormData(savedDraft.formData);
-                setPersonnel(savedDraft.personnel);
-                setDraftToRestore(savedDraft);
-            } catch (e) {
-                console.error("Failed to parse draft", e);
-                localStorage.removeItem(DRAFT_STORAGE_KEY);
-                setDraftToRestore(null);
-                resetForm(newContractType);
-            }
-        } else {
-            setDraftToRestore(null);
-            resetForm(newContractType);
-        }
-
-        setSelectedContractTypeId(newTypeId);
-    };
-
-    const handleRestoreDraft = () => {
-        setDraftToRestore(null);
-    };
-
-    const handleDismissDraft = () => {
-        if (contractType) {
-            clearDraft(selectedContractTypeId);
-            setDraftToRestore(null);
-            resetForm(contractType);
-        }
-    };
-
-    useEffect(() => {
-        if (!contractType) {
-            setFormErrors({});
-            return;
-        }
-
-        const newErrors: { [key: string]: string } = {};
-
-        // --- Standard field validation ---
-        contractType.fields.forEach(field => {
-            const value = formData[field.id];
-            // A value of 0 is valid, so we explicitly check for empty string, null, or undefined.
-            if (field.required && (value === '' || value === null || value === undefined)) {
-                newErrors[field.id] = `${field.label} is required.`;
-            } else if (field.minLength && String(value || '').length < field.minLength) {
-                newErrors[field.id] = `${field.label} must be at least ${field.minLength} characters.`;
-            }
-        });
-
-        // --- Custom validation for rehearsal rate ---
-        const rehearsalHours = formData.rehearsalHours;
-        const rehearsalRate = formData.rehearsalRate;
-
-        // If hours are entered and are more than 0, a rate is required.
-        if (typeof rehearsalHours === 'number' && rehearsalHours > 0) {
-            // An empty string or null/undefined for rate is considered not entered. 0 is a valid rate.
-            if (rehearsalRate === '' || rehearsalRate === null || rehearsalRate === undefined) {
-                // Only add the error if there isn't already a 'required' error, to avoid clutter.
-                if (!newErrors['rehearsalRate']) {
-                    newErrors['rehearsalRate'] = 'A Rehearsal Rate is required when Rehearsal Hours are entered.';
-                }
-            }
-        }
-
-        // Prevent unnecessary re-renders by comparing with the current state.
-        setFormErrors(currentErrors => {
-            if (JSON.stringify(newErrors) !== JSON.stringify(currentErrors)) {
-                return newErrors;
-            }
-            return currentErrors;
-        });
-    }, [formData, contractType]); // Removed formErrors from dependencies for stability
-
-    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        if (event.key === 'Enter' && !event.shiftKey && !(event.target instanceof HTMLTextAreaElement)) {
-            event.preventDefault();
-            if (!openAccordion || !contractType) return;
-            const currentGroupFields = fieldGroups[openAccordion] || [];
-            const isSectionComplete = currentGroupFields.every(field => {
-                if (!field.required) return true;
-                const value = formData[field.id];
-                if (value === '' || value === undefined || value === null) return false;
-                if (field.minLength && String(value).length < field.minLength) return false;
-                return true;
-            });
-            if (isSectionComplete) {
-                const groupNames = orderedGroupNames;
-                const currentIdx = groupNames.indexOf(openAccordion);
-                if (currentIdx > -1 && currentIdx < groupNames.length - 1) {
-                    setOpenAccordion(groupNames[currentIdx + 1]);
-                }
-            }
-        }
-    };
-
-    const handleChange = (id: string, value: string | number) => {
-        setFormData(prev => ({ ...prev, [id]: value }));
-        setActiveVersionId(null);
-    };
+    // --- Calculations ---
     const calculationResults = useMemo(() => contractType ? calculateEngagement(formData, contractType, personnel) : [], [formData, contractType, personnel]);
     const currency = contractType?.currency || config.currency;
 
+    // --- PDF / Email ---
     const handlePdfGeneration = () => {
         if (!contractType) return;
         const { blob, fileName } = generatePdf(config, contractType, formData, calculationResults, personnel);
 
-        // Trigger download
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -439,19 +144,15 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
             formDataPayload.append('message', message);
             formDataPayload.append('pdf', blob, fileName);
 
-            // Allow the user to specify a subject
             const subject = `Smart Contract PDF: ${fileName.replace('.pdf', '')}`;
             formDataPayload.append('subject', subject);
 
-            // If we are developing locally, port 8080 usually handles the API
-            // Production will route /api nicely, but dev might need explicit mapping
             const apiUrl = import.meta.env.DEV ? 'http://localhost:8080/api/email' : '/api/email';
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
-                    // Do NOT set Content-Type header with FormData, fetch handles the boundary automatically
                 },
                 body: formDataPayload
             });
@@ -471,147 +172,17 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
         }
     };
 
-    const handleSaveVersion = () => {
-        if (!contractType) return;
-        const finalName = snapshotNote.trim() || `Version ${currentVersions.length + 1}`;
-
-        const newVersion: ContractVersion = {
-            id: new Date().toISOString(),
-            name: finalName,
-            formData,
-            personnel,
-            createdAt: new Date().toISOString(),
-            contractTypeId: selectedContractTypeId,
-        };
-        setCurrentVersions(prev => [...prev, newVersion]);
-        setSnapshotNote('');
-        setActiveVersionId(newVersion.id);
-    };
-
-    const handleSaveContract = async () => {
-        if (!contractType) return;
-
-        // Compute activeVersionIndex from activeVersionId
-        const versionIndex = activeVersionId
-            ? currentVersions.findIndex(v => v.id === activeVersionId)
-            : null;
-        const activeIdx = versionIndex !== null && versionIndex >= 0 ? versionIndex : null;
-
-        if (loadedContractId) {
-            const success = await updateContract(loadedContractId, formData, currentVersions, selectedContractTypeId, personnel, activeIdx);
-            if (success) {
-                alert('Contract updated successfully!');
-                clearDraft(selectedContractTypeId);
-            }
-        } else {
-            const newContract = await saveContract(formData, currentVersions, selectedContractTypeId, personnel, activeIdx);
-            if (newContract) {
-                alert('Contract saved successfully!');
-                setLoadedContractId(newContract.id);
-                clearDraft(selectedContractTypeId);
-            }
-        }
-    };
-
-    const handleResetContract = () => {
-        if (window.confirm('Are you sure you want to start a new contract? This will clear all fields and return to the selection screen.')) {
-            clearDraft(selectedContractTypeId);
-            setSelectedContractTypeId('');
-            resetForm();
-        }
-    };
-
-    const handleLoadContract = (contract: SavedContract) => {
-        const isChangingType = selectedContractTypeId !== contract.contractTypeId;
-
-        if (selectedContractTypeId) {
-            clearDraft(selectedContractTypeId);
-        }
-
-        if (isChangingType) {
-            setIsSwitchingType(true);
-        }
-
-        setSelectedContractTypeId(contract.contractTypeId);
-        setFormData(contract.baseFormData);
-        setPersonnel(contract.personnel);
-        setPersonnelSsns({});
-        setCurrentVersions(contract.versions);
-        setLoadedContractId(contract.id);
-        setIsOpeningContract(false);
-        setDraftToRestore(null);
-        // Restore the active version from the saved activeVersionIndex
-        const savedIdx = contract.activeVersionIndex;
-        if (savedIdx !== null && savedIdx !== undefined && savedIdx >= 0 && savedIdx < contract.versions.length) {
-            setActiveVersionId(contract.versions[savedIdx].id);
-        } else if (contract.versions.length > 0) {
-            setActiveVersionId(contract.versions[contract.versions.length - 1].id);
-        } else {
-            setActiveVersionId(null);
-        }
+    // --- Version load handler (inline in JSX, formalized here) ---
+    const handleLoadVersion = useCallback((vFormData: FormData, vPersonnel: Person[], vId: string) => {
+        setFormData(vFormData);
+        setPersonnel(vPersonnel);
+        setActiveVersionId(vId);
         window.scrollTo(0, 0);
-    };
-
-    const handleDeleteCurrentVersion = (id: string) => setCurrentVersions(prev => prev.filter(v => v.id !== id));
-
-    const handleAddMusician = () => {
-        setPersonnel(p => [...p, { id: Date.now().toString(), name: '', address: '', presentForRehearsal: true, role: 'sideperson', doubling: false, cartage: false, cartageInstrumentId: '' }]);
-        setActiveVersionId(null);
-    };
-    const handleRemoveMusician = (id: string) => {
-        setPersonnel(p => {
-            const newPersonnel = p.filter(musician => musician.id !== id);
-            if (newPersonnel.length > 0 && !newPersonnel.some(m => m.role === 'leader')) {
-                newPersonnel[0].role = 'leader';
-            }
-            return newPersonnel;
-        });
-        setPersonnelSsns(s => { const newSsns = { ...s }; delete newSsns[id]; return newSsns; });
-        setActiveVersionId(null);
-    }
-    const handlePersonnelChange = (id: string, field: keyof Omit<Person, 'id' | 'role'>, value: string | boolean) => {
-        setPersonnel(p => p.map(musician => {
-            if (musician.id !== id) return musician;
-            const updatedMusician = { ...musician, [field]: value };
-            if (field === 'cartage' && value === false) {
-                updatedMusician.cartageInstrumentId = '';
-            }
-            return updatedMusician;
-        }));
-        setActiveVersionId(null);
-    }
-    const handleRoleChange = (leaderId: string) => {
-        setPersonnel(p => p.map(musician => ({
-            ...musician,
-            role: musician.id === leaderId ? 'leader' : 'sideperson'
-        })));
-        setActiveVersionId(null);
-    };
-
-    const checkForDuplicateMusician = (id: string) => {
-        const currentMusician = personnel.find(p => p.id === id);
-        if (!currentMusician || !currentMusician.name.trim() || !currentMusician.address.trim()) {
-            return;
-        }
-
-        const duplicate = personnel.find(p =>
-            p.id !== id &&
-            p.name.trim().toLowerCase() === currentMusician.name.trim().toLowerCase() &&
-            p.address.trim().toLowerCase() === currentMusician.address.trim().toLowerCase()
-        );
-
-        if (duplicate) {
-            if (window.confirm(`A musician named '${duplicate.name}' with the same address already exists. Would you like to remove this duplicate entry?`)) {
-                handleRemoveMusician(id);
-            }
-        }
-    };
-
-    const handleSsnChange = (id: string, value: string) => setPersonnelSsns(s => ({ ...s, [id]: value }));
+    }, [setFormData, setPersonnel]);
 
     return (
         <>
-            {isOpeningContract && <OpenContractModal isOpen={isOpeningContract} onClose={() => setIsOpeningContract(false)} savedContracts={savedContracts} onLoadContract={handleLoadContract} onDeleteContract={deleteContract} />}
+            {isOpeningContract && <OpenContractModal isOpen={isOpeningContract} onClose={() => setIsOpeningContract(false)} savedContracts={savedContracts} onLoadContract={versions.handleLoadContract} onDeleteContract={deleteContract} />}
             <EmailModal
                 isOpen={isEmailModalOpen}
                 onClose={() => setIsEmailModalOpen(false)}
@@ -769,14 +340,14 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                                 <input
                                     type="text"
                                     placeholder="Note for snapshot (optional)"
-                                    value={snapshotNote}
-                                    onChange={(e) => setSnapshotNote(e.target.value)}
+                                    value={versions.snapshotNote}
+                                    onChange={(e) => versions.setSnapshotNote(e.target.value)}
                                     className="block w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-50 sm:text-sm"
                                 />
-                                <button onClick={handleSaveVersion} className="w-full bg-slate-700 text-slate-100 font-bold py-2.5 px-4 rounded-md hover:bg-slate-600 transition-colors shadow-sm">Save Version Snapshot</button>
+                                <button onClick={versions.handleSaveVersion} className="w-full bg-slate-700 text-slate-100 font-bold py-2.5 px-4 rounded-md hover:bg-slate-600 transition-colors shadow-sm">Save Version Snapshot</button>
                             </div>
 
-                            <button onClick={handleSaveContract} className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-indigo-500 transition-colors shadow-sm mt-4">{loadedContractId ? 'Update Master Contract' : 'Save Master Contract'}</button>
+                            <button onClick={versions.handleSaveContract} className="w-full bg-indigo-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-indigo-500 transition-colors shadow-sm mt-4">{versions.loadedContractId ? 'Update Master Contract' : 'Save Master Contract'}</button>
                             <div className="border-t border-slate-700 !my-5"></div>
                             <button onClick={() => setIsOpeningContract(true)} className="w-full bg-slate-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-slate-500 transition-colors shadow-sm">Open Contract</button>
                             <div className="flex space-x-3">
@@ -784,12 +355,12 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                                 <button onClick={() => setIsEmailModalOpen(true)} className="w-1/2 bg-sky-600 text-white font-bold py-3 px-4 rounded-md hover:bg-sky-500 transition-colors shadow-md text-base">Email PDF</button>
                             </div>
                             <div className="border-t border-slate-700 !my-5"></div>
-                            <button onClick={handleResetContract} className="w-full bg-red-600/90 text-white font-bold py-2.5 px-4 rounded-md hover:bg-red-500 transition-colors shadow-sm">Start New Contract</button>
+                            <button onClick={versions.handleResetContract} className="w-full bg-red-600/90 text-white font-bold py-2.5 px-4 rounded-md hover:bg-red-500 transition-colors shadow-sm">Start New Contract</button>
                         </div>
-                        {currentVersions.length > 0 && (
+                        {versions.currentVersions.length > 0 && (
                             <div className="bg-slate-800 p-6 rounded-lg shadow-lg border border-slate-700">
                                 <h3 className="text-lg font-bold text-slate-200 mb-4">Saved Snapshots</h3>
-                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-2">{currentVersions.map(v => {
+                                <ul className="space-y-2 max-h-48 overflow-y-auto pr-2">{versions.currentVersions.map(v => {
                                     const vResults = contractType ? calculateEngagement(v.formData, contractType, v.personnel) : [];
                                     const vTotal = vResults.find(r => r.id === 'totalEngagementCost');
                                     const vCostStr = formatCurrency(vTotal?.value ?? 0, currency.code, currency.symbol);
@@ -802,8 +373,8 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
                                                 )}
                                             </span>
                                             <div className="flex space-x-3 text-xs font-semibold uppercase tracking-wider">
-                                                <button onClick={() => { setFormData(v.formData); setPersonnel(v.personnel); setActiveVersionId(v.id); window.scrollTo(0, 0); }} className="text-indigo-400 hover:text-indigo-300">Load</button>
-                                                <button onClick={() => handleDeleteCurrentVersion(v.id)} className="text-red-400 hover:text-red-300">Del</button>
+                                                <button onClick={() => handleLoadVersion(v.formData, v.personnel, v.id)} className="text-indigo-400 hover:text-indigo-300">Load</button>
+                                                <button onClick={() => versions.handleDeleteCurrentVersion(v.id)} className="text-red-400 hover:text-red-300">Del</button>
                                             </div>
                                         </li>
                                     );
