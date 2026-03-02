@@ -137,7 +137,32 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Since auth is mocked to always be true, we skip the login page.
+  if (authState.suspendedAt) {
+    const suspendedDate = new Date(authState.suspendedAt).toLocaleDateString('en-US', {
+      year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit'
+    });
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 px-4">
+        <div className="bg-gray-800 border border-yellow-700 rounded-lg p-8 max-w-md w-full text-center shadow-xl">
+          <div className="text-yellow-400 text-4xl mb-4">&#9888;</div>
+          <h2 className="text-xl font-bold text-white mb-2">Account Suspended</h2>
+          <p className="text-gray-300 text-sm mb-4">
+            Your account has been suspended since <span className="font-semibold text-yellow-300">{suspendedDate}</span>.
+          </p>
+          <p className="text-gray-400 text-xs mb-6">
+            If you believe this is an error, please contact your local administrator.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated()) {
     return <LoginPage />;
   }

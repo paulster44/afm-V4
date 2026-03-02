@@ -24,6 +24,7 @@ type PlatformUser = {
     email: string;
     name: string | null;
     role: string;
+    suspendedAt: string | null;
     createdAt: string;
     _count: { contracts: number };
 };
@@ -46,6 +47,8 @@ const AdminPanel: React.FC = () => {
     // Users State
     const [users, setUsers] = useState<PlatformUser[]>([]);
     const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
+    const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+    const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
     // Announcements State
     const [announcementText, setAnnouncementText] = useState('');
@@ -92,6 +95,50 @@ const AdminPanel: React.FC = () => {
         } catch (err) {
             console.error('Role update error:', err);
             alert('Error connecting to API.');
+        }
+    };
+
+    const handleDeleteUser = async (userId: string) => {
+        setActionLoadingId(userId);
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            if (res.ok) {
+                setUsers(users.filter(u => u.id !== userId));
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to delete user');
+            }
+        } catch (err) {
+            console.error('Delete user error:', err);
+            alert('Error connecting to API.');
+        } finally {
+            setActionLoadingId(null);
+            setConfirmDeleteUserId(null);
+        }
+    };
+
+    const handleSuspendToggle = async (userId: string) => {
+        setActionLoadingId(userId);
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/suspend`, {
+                method: 'PUT',
+                headers: getAuthHeaders()
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setUsers(users.map(u => u.id === userId ? { ...u, suspendedAt: data.user.suspendedAt } : u));
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to update suspension status');
+            }
+        } catch (err) {
+            console.error('Suspend toggle error:', err);
+            alert('Error connecting to API.');
+        } finally {
+            setActionLoadingId(null);
         }
     };
 
@@ -269,13 +316,20 @@ const AdminPanel: React.FC = () => {
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Joined</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Contracts</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Role</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-700">
                                         {users.map((user) => (
                                             <tr key={user.id}>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
-                                                    {user.email} {user.id === authState.user?.uid && <span className="text-xs text-indigo-400 ml-2">(You)</span>}
+                                                    {user.email}
+                                                    {user.id === authState.user?.uid && <span className="text-xs text-indigo-400 ml-2">(You)</span>}
+                                                    {user.suspendedAt && (
+                                                        <span className="text-xs bg-yellow-900 text-yellow-300 border border-yellow-700 py-0.5 px-1.5 rounded-full ml-2">
+                                                            Suspended
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                                                     {new Date(user.createdAt).toLocaleDateString()}
@@ -294,6 +348,30 @@ const AdminPanel: React.FC = () => {
                                                         <option value="ADMIN">Admin</option>
                                                         {user.role === 'GOD' && <option value="GOD">God</option>}
                                                     </select>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    {user.id !== authState.user?.uid && (
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleSuspendToggle(user.id)}
+                                                                disabled={actionLoadingId === user.id}
+                                                                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                                                    user.suspendedAt
+                                                                        ? 'bg-emerald-700 hover:bg-emerald-600 text-white'
+                                                                        : 'bg-yellow-700 hover:bg-yellow-600 text-white'
+                                                                }`}
+                                                            >
+                                                                {user.suspendedAt ? 'Unsuspend' : 'Suspend'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setConfirmDeleteUserId(user.id)}
+                                                                disabled={actionLoadingId === user.id}
+                                                                className="px-3 py-1 text-xs font-semibold rounded-md bg-red-800 hover:bg-red-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
@@ -407,6 +485,41 @@ const AdminPanel: React.FC = () => {
                 {view === 'locals' && isGod && (
                     <LocalConfigEditor />
                 )}
+                {confirmDeleteUserId && (() => {
+                    const targetUser = users.find(u => u.id === confirmDeleteUserId);
+                    return (
+                        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center">
+                            <div className="bg-gray-800 border border-gray-600 rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+                                <h3 className="text-lg font-bold text-white mb-2">Delete User</h3>
+                                <p className="text-sm text-gray-300 mb-1">
+                                    Are you sure you want to permanently delete:
+                                </p>
+                                <p className="text-sm font-semibold text-red-300 mb-4">
+                                    {targetUser?.email}
+                                </p>
+                                <p className="text-xs text-gray-400 mb-6">
+                                    This will delete all their contracts, memberships, and workspaces. This action cannot be undone.
+                                </p>
+                                <div className="flex gap-3 justify-end">
+                                    <button
+                                        onClick={() => setConfirmDeleteUserId(null)}
+                                        disabled={actionLoadingId === confirmDeleteUserId}
+                                        className="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors disabled:opacity-50"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteUser(confirmDeleteUserId)}
+                                        disabled={actionLoadingId === confirmDeleteUserId}
+                                        className="px-4 py-2 text-sm font-medium text-white bg-red-700 hover:bg-red-600 rounded-md transition-colors disabled:opacity-50"
+                                    >
+                                        {actionLoadingId === confirmDeleteUserId ? 'Deleting...' : 'Delete Permanently'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
             </main>
         </div>
     );

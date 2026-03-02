@@ -33,6 +33,13 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
     // Try to safely map to existing PostgreSQL user by email to get their assigned role
     const dbUser = await prisma.user.findUnique({ where: { email: decodedToken.email } });
 
+    if (dbUser?.suspendedAt) {
+      return res.status(403).json({
+        error: 'Account suspended',
+        suspendedAt: dbUser.suspendedAt.toISOString(),
+      });
+    }
+
     req.user = {
       id: dbUser ? dbUser.id : decodedToken.uid,
       email: decodedToken.email,

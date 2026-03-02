@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
+import { auth } from '../utils/firebase';
 import { requireAuth, requireAdmin, requireGod, AuthRequest } from '../middleware/auth';
 import { updateRoleSchema, createAnnouncementSchema } from '../schemas/admin';
 
@@ -19,6 +20,7 @@ router.get('/users', requireGod, async (req: AuthRequest, res: Response) => {
                 email: true,
                 name: true,
                 role: true,
+                suspendedAt: true,
                 createdAt: true,
                 _count: {
                     select: { contracts: true }
@@ -53,6 +55,78 @@ router.put('/users/:id/role', requireGod, async (req: AuthRequest, res: Response
         }
         console.error('[PUT /admin/users/:id/role]', error);
         res.status(500).json({ error: 'Failed to update user role' });
+    }
+});
+
+// DELETE /api/admin/users/:id
+// Permanently delete a user and all their data (GOD ONLY)
+router.delete('/users/:id', requireGod, async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        if (req.user!.id === id) {
+            return res.status(400).json({ error: 'Cannot delete your own account' });
+        }
+
+        const targetUser = await prisma.user.findUnique({ where: { id } });
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Clean up orphaned workspaces (ownerUserId has no FK, won't cascade)
+        await prisma.workspace.deleteMany({ where: { ownerUserId: id } });
+
+        // Delete user — cascades: memberships, oauths, contracts (+versions), announcements
+        await prisma.user.delete({ where: { id } });
+
+        // Remove from Firebase Auth (best-effort)
+        try {
+            await auth.deleteUser(id);
+        } catch (firebaseError) {
+            console.error('[DELETE /admin/users/:id] Firebase delete failed:', firebaseError);
+        }
+
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        console.error('[DELETE /admin/users/:id]', error);
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
+});
+
+// PUT /api/admin/users/:id/suspend
+// Toggle suspend/unsuspend a user (GOD ONLY)
+router.put('/users/:id/suspend', requireGod, async (req: AuthRequest, res: Response) => {
+    try {
+        const { id } = req.params;
+
+        if (req.user!.id === id) {
+            return res.status(400).json({ error: 'Cannot suspend your own account' });
+        }
+
+        const targetUser = await prisma.user.findUnique({ where: { id } });
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        const isSuspending = !targetUser.suspendedAt;
+
+        const updatedUser = await prisma.user.update({
+            where: { id },
+            data: { suspendedAt: isSuspending ? new Date() : null },
+            select: { id: true, email: true, role: true, suspendedAt: true }
+        });
+
+        // Mirror to Firebase Auth (best-effort)
+        try {
+            await auth.updateUser(id, { disabled: isSuspending });
+        } catch (firebaseError) {
+            console.error('[PUT /admin/users/:id/suspend] Firebase update failed:', firebaseError);
+        }
+
+        res.json({ user: updatedUser });
+    } catch (error) {
+        console.error('[PUT /admin/users/:id/suspend]', error);
+        res.status(500).json({ error: 'Failed to update suspension status' });
     }
 });
 

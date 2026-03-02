@@ -7,6 +7,7 @@ type AuthState = {
   token: string | null;
   user: User | null;
   loading: boolean;
+  suspendedAt: string | null;
 };
 
 type AuthContextType = {
@@ -23,6 +24,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     token: null,
     user: null,
     loading: true,
+    suspendedAt: null,
   });
 
   useEffect(() => {
@@ -30,7 +32,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // If the user exists but their email is NOT verified, sign them out immediately
       if (firebaseUser && !firebaseUser.emailVerified) {
         await signOut(auth);
-        setAuthState({ token: null, user: null, loading: false });
+        setAuthState({ token: null, user: null, loading: false, suspendedAt: null });
         return;
       }
 
@@ -48,18 +50,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setAuthState({
               token,
               user: { ...data.user, uid: data.user.id, isAdmin: data.user.isAdmin ?? false },
-              loading: false
+              loading: false,
+              suspendedAt: null,
             });
+          } else if (response.status === 403) {
+            const data = await response.json();
+            await signOut(auth);
+            setAuthState({ token: null, user: null, loading: false, suspendedAt: data.suspendedAt || null });
           } else {
             console.error('Failed to auto-provision user in backend');
-            setAuthState({ token: null, user: null, loading: false });
+            setAuthState({ token: null, user: null, loading: false, suspendedAt: null });
           }
         } catch (error) {
           console.error('Error fetching auth token or sinking to backend:', error);
-          setAuthState({ token: null, user: null, loading: false });
+          setAuthState({ token: null, user: null, loading: false, suspendedAt: null });
         }
       } else {
-        setAuthState({ token: null, user: null, loading: false });
+        setAuthState({ token: null, user: null, loading: false, suspendedAt: null });
       }
     });
 
