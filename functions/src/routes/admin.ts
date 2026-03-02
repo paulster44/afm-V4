@@ -1,6 +1,8 @@
 import { Router, Response } from 'express';
+import { z } from 'zod';
 import { prisma } from '../utils/prisma';
 import { requireAuth, requireAdmin, requireGod, AuthRequest } from '../middleware/auth';
+import { updateRoleSchema, createAnnouncementSchema } from '../schemas/admin';
 
 const router = Router();
 
@@ -36,11 +38,7 @@ router.get('/users', requireGod, async (req: AuthRequest, res: Response) => {
 router.put('/users/:id/role', requireGod, async (req: AuthRequest, res: Response) => {
     try {
         const { id } = req.params;
-        const { role } = req.body;
-
-        if (!['USER', 'ADMIN', 'GOD'].includes(role)) {
-            return res.status(400).json({ error: 'Invalid role' });
-        }
+        const { role } = updateRoleSchema.parse(req.body);
 
         const updatedUser = await prisma.user.update({
             where: { id },
@@ -50,6 +48,9 @@ router.put('/users/:id/role', requireGod, async (req: AuthRequest, res: Response
 
         res.json({ user: updatedUser });
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Invalid role' });
+        }
         console.error('[PUT /admin/users/:id/role]', error);
         res.status(500).json({ error: 'Failed to update user role' });
     }
@@ -59,11 +60,7 @@ router.put('/users/:id/role', requireGod, async (req: AuthRequest, res: Response
 // Create a new global announcement (ADMIN and GOD)
 router.post('/announcements', requireAdmin, async (req: AuthRequest, res: Response) => {
     try {
-        const { message } = req.body;
-
-        if (!message || typeof message !== 'string') {
-            return res.status(400).json({ error: 'Valid message is required' });
-        }
+        const { message } = createAnnouncementSchema.parse(req.body);
 
         if (!req.user || !req.user.id) {
             return res.status(401).json({ error: 'Unauthorized' });
@@ -88,33 +85,76 @@ router.post('/announcements', requireAdmin, async (req: AuthRequest, res: Respon
 
         res.status(201).json({ announcement: newAnnouncement });
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Valid message is required' });
+        }
         console.error('[POST /admin/announcements]', error);
         res.status(500).json({ error: 'Failed to create announcement' });
     }
 });
 
-import { Request } from 'express';
-import { exec } from 'child_process';
-import path from 'path';
-
-// GET /api/admin/migrate
-// TEMPORARY: Force database migrations to run from within the cloud environment
-router.get('/migrate', async (req: Request, res: Response) => {
+// GET /api/admin/usage
+// Fetch real usage statistics from the database (ADMIN and GOD)
+router.get('/usage', requireAdmin, async (req: AuthRequest, res: Response) => {
     try {
-        const migrationsDir = path.resolve(__dirname, '../../');
-        exec(
-            'npx prisma migrate deploy',
-            { cwd: migrationsDir, env: { ...process.env } },
-            (err, stdout, stderr) => {
-                if (err) {
-                    res.status(500).json({ error: stderr || err.message });
-                } else {
-                    res.json({ message: 'Migration successful', output: stdout });
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Get all users with their contract and version counts
+        const users = await prisma.user.findMany({
+            select: {
+                id: true,
+                email: true,
+                _count: { select: { contracts: true } },
+                contracts: {
+                    select: {
+                        updatedAt: true,
+                        _count: { select: { versions: true } },
+                    }
                 }
-            }
-        );
+            },
+            orderBy: { createdAt: 'asc' }
+        });
+
+        // Compute per-user stats
+        const userUsage = users.map(u => {
+            const totalContracts = u._count.contracts;
+            const totalVersions = u.contracts.reduce((sum, c) => sum + c._count.versions, 0);
+            const lastActive = u.contracts.length > 0
+                ? u.contracts.reduce((latest, c) => c.updatedAt > latest ? c.updatedAt : latest, u.contracts[0].updatedAt)
+                : null;
+            return {
+                uid: u.id,
+                email: u.email,
+                totalContracts,
+                totalVersions,
+                totalActions: totalContracts + totalVersions,
+                lastActive: lastActive?.toISOString() ?? null,
+            };
+        });
+
+        // Aggregate totals
+        const totalContractsLifetime = userUsage.reduce((sum, u) => sum + u.totalContracts, 0);
+        const totalVersionsLifetime = userUsage.reduce((sum, u) => sum + u.totalVersions, 0);
+
+        // Today's contracts
+        const contractsToday = await prisma.contract.count({
+            where: { createdAt: { gte: today } }
+        });
+        const versionsToday = await prisma.contractVersion.count({
+            where: { createdAt: { gte: today } }
+        });
+
+        res.json({
+            totalContractsLifetime,
+            totalVersionsLifetime,
+            contractsToday,
+            versionsToday,
+            userUsage: userUsage.sort((a, b) => b.totalActions - a.totalActions),
+        });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to run migration' });
+        console.error('[GET /admin/usage]', error);
+        res.status(500).json({ error: 'Failed to fetch usage stats' });
     }
 });
 

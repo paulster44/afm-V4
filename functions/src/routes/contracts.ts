@@ -1,6 +1,9 @@
 import { Router, Response } from 'express';
+import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { createContractSchema, updateContractSchema, createVersionSchema } from '../schemas/contracts';
 
 const router = Router();
 
@@ -37,19 +40,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.post('/', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user!.id;
-        const { localId, contractTypeId, name, baseFormData, personnel, versions, activeVersionIndex } = req.body;
+        const data = createContractSchema.parse(req.body);
 
-        if (!localId || !contractTypeId || !name) {
-            return res.status(400).json({ error: 'localId, contractTypeId, and name are required' });
-        }
-
-        const versionsData = Array.isArray(versions) && versions.length > 0
+        const versionsData = data.versions && data.versions.length > 0
             ? {
-                create: versions.map((v: any) => ({
+                create: data.versions.map((v) => ({
                     name: v.name,
-                    formData: v.formData ?? {},
-                    personnel: v.personnel ?? [],
-                    contractTypeId: v.contractTypeId ?? contractTypeId
+                    formData: v.formData,
+                    personnel: v.personnel,
+                    contractTypeId: v.contractTypeId ?? data.contractTypeId
                 }))
             }
             : undefined;
@@ -57,19 +56,22 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         const contract = await prisma.contract.create({
             data: {
                 userId,
-                localId: parseInt(localId, 10),
-                contractTypeId,
-                name,
-                baseFormData: baseFormData ?? {},
-                personnel: personnel ?? [],
+                localId: data.localId as number,
+                contractTypeId: data.contractTypeId,
+                name: data.name,
+                baseFormData: data.baseFormData,
+                personnel: data.personnel,
                 ...(versionsData ? { versions: versionsData } : {}),
-                activeVersionIndex: activeVersionIndex ?? null,
+                activeVersionIndex: data.activeVersionIndex ?? null,
             },
             include: { versions: { orderBy: { createdAt: 'asc' } } },
         });
 
         res.status(201).json({ contract });
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: error.errors });
+        }
         console.error('[POST /contracts]', error);
         res.status(500).json({ error: 'Failed to create contract' });
     }
@@ -81,7 +83,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user!.id;
         const { id } = req.params;
-        const { contractTypeId, name, baseFormData, personnel, versions, activeVersionIndex } = req.body;
+        const data = updateContractSchema.parse(req.body);
 
         // Verify ownership
         const existing = await prisma.contract.findFirst({ where: { id, userId } });
@@ -91,16 +93,16 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         }
 
         // Build the versions update object
-        let versionsUpdate: any = undefined;
-        if (Array.isArray(versions)) {
+        let versionsUpdate: Record<string, unknown> | undefined = undefined;
+        if (data.versions) {
             versionsUpdate = {
                 deleteMany: {},
-                ...(versions.length > 0 ? {
-                    create: versions.map((v: any) => ({
+                ...(data.versions.length > 0 ? {
+                    create: data.versions.map((v) => ({
                         name: v.name,
-                        formData: v.formData ?? {},
-                        personnel: v.personnel ?? [],
-                        contractTypeId: v.contractTypeId ?? contractTypeId
+                        formData: v.formData,
+                        personnel: v.personnel,
+                        contractTypeId: v.contractTypeId ?? data.contractTypeId ?? existing.contractTypeId
                     }))
                 } : {})
             };
@@ -109,18 +111,21 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         const contract = await prisma.contract.update({
             where: { id },
             data: {
-                contractTypeId: contractTypeId ?? existing.contractTypeId,
-                name: name ?? existing.name,
-                baseFormData: baseFormData ?? existing.baseFormData,
-                personnel: personnel ?? existing.personnel,
+                contractTypeId: data.contractTypeId ?? existing.contractTypeId,
+                name: data.name ?? existing.name,
+                baseFormData: data.baseFormData ?? existing.baseFormData as Prisma.InputJsonValue,
+                personnel: data.personnel ?? existing.personnel as Prisma.InputJsonValue,
                 ...(versionsUpdate ? { versions: versionsUpdate } : {}),
-                activeVersionIndex: activeVersionIndex ?? existing.activeVersionIndex,
+                activeVersionIndex: data.activeVersionIndex ?? existing.activeVersionIndex,
             },
             include: { versions: { orderBy: { createdAt: 'asc' } } },
         });
 
         res.json({ contract });
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: error.errors });
+        }
         console.error('[PUT /contracts/:id]', error);
         res.status(500).json({ error: 'Failed to update contract' });
     }
@@ -153,7 +158,7 @@ router.post('/:id/versions', async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user!.id;
         const { id } = req.params;
-        const { name, formData, personnel, contractTypeId } = req.body;
+        const data = createVersionSchema.parse(req.body);
 
         const existing = await prisma.contract.findFirst({ where: { id, userId } });
         if (!existing) {
@@ -163,15 +168,18 @@ router.post('/:id/versions', async (req: AuthRequest, res: Response) => {
         const version = await prisma.contractVersion.create({
             data: {
                 contractId: id,
-                name: name || new Date().toISOString(),
-                formData: formData ?? {},
-                personnel: personnel ?? [],
-                contractTypeId: contractTypeId ?? existing.contractTypeId,
+                name: data.name || new Date().toISOString(),
+                formData: data.formData,
+                personnel: data.personnel,
+                contractTypeId: data.contractTypeId ?? existing.contractTypeId,
             },
         });
 
         res.status(201).json({ version });
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: error.errors });
+        }
         console.error('[POST /contracts/:id/versions]', error);
         res.status(500).json({ error: 'Failed to save version' });
     }

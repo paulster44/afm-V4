@@ -2,11 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { auth } from '../utils/firebase';
 import { prisma } from '../utils/prisma';
 
+export type UserRole = 'USER' | 'ADMIN' | 'GOD';
+
 export interface AuthRequest extends Request {
   user?: {
     id: string; // Prisma ID or Firebase UID fallback
     email: string;
-    role?: string;
+    role: UserRole;
   };
   workspaceId?: string;
   membershipRole?: string;
@@ -34,7 +36,7 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
     req.user = {
       id: dbUser ? dbUser.id : decodedToken.uid,
       email: decodedToken.email,
-      role: dbUser?.role || 'USER' // Defaults to USER if not in DB, though they should be auto-provisioned
+      role: (dbUser?.role as UserRole) || 'USER'
     };
 
     next();
