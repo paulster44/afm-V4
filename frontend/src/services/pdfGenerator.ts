@@ -200,10 +200,9 @@ export const generatePdf = (
     doc.text("Signature of Musician/Leader", musicianSignatureX, signatureY + 5);
 
     // --- Generate Reference Number (used in footer and filename) ---
-    const date = formData.engagementDate || formData.sessionDate || new Date().toISOString().split('T')[0];
-    const refDate = String(date).replace(/-/g, '');
-    const refTime = new Date().getTime().toString().slice(-6);
-    const refId = `${refDate}-${refTime}`;
+    const refDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const refDigits = new Date().getTime().toString().slice(-5);
+    const refId = `${refDate}-${refDigits}`;
     const referenceNumber = `Ref: ${refId}`;
 
     // --- Footer with Page Numbers and Ref ---
