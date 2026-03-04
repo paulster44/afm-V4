@@ -196,7 +196,7 @@ router.delete('/:id/versions/:versionId', async (req: AuthRequest, res: Response
             return res.status(404).json({ error: 'Contract not found' });
         }
 
-        await prisma.contractVersion.delete({ where: { id: versionId } });
+        await prisma.contractVersion.delete({ where: { id: versionId, contractId: id } });
         res.json({ message: 'Version deleted' });
     } catch (error) {
         console.error('[DELETE /contracts/:id/versions/:versionId]', error);

@@ -49,7 +49,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const data = await response.json();
             setAuthState({
               token,
-              user: { ...data.user, uid: data.user.id, isAdmin: data.user.isAdmin ?? false },
+              user: { ...data.user, uid: data.user.id, isAdmin: data.user.isAdmin ?? false, isGod: data.user.isGod ?? false },
               loading: false,
               suspendedAt: null,
             });

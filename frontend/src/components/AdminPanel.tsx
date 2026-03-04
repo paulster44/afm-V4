@@ -1,21 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
 import UsageDashboard from './UsageDashboard';
 import { useAuth } from '../contexts/AuthContext';
 import LocalConfigEditor from './LocalConfigEditor';
-
-const blobToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64data = reader.result as string;
-            // remove the "data:mime/type;base64," prefix
-            resolve(base64data.split(',')[1]);
-        }
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
-};
 
 type AdminPanelView = 'scanner' | 'usage' | 'users' | 'announcements' | 'locals';
 
@@ -54,10 +40,15 @@ const AdminPanel: React.FC = () => {
     const [announcementText, setAnnouncementText] = useState('');
     const [isPublishing, setIsPublishing] = useState(false);
     const [publishMessage, setPublishMessage] = useState({ type: '', text: '' });
+    const [activeAnnouncement, setActiveAnnouncement] = useState<{ id: string; message: string } | null>(null);
+    const [loadingAnnouncement, setLoadingAnnouncement] = useState(false);
 
     useEffect(() => {
         if (view === 'users' && isGod) {
             fetchUsers();
+        }
+        if (view === 'announcements') {
+            fetchActiveAnnouncement();
         }
     }, [view, isGod]);
 
@@ -76,6 +67,39 @@ const AdminPanel: React.FC = () => {
             setError('Error connecting to API.');
         } finally {
             setLoadingUsers(false);
+        }
+    };
+
+    const fetchActiveAnnouncement = async () => {
+        setLoadingAnnouncement(true);
+        try {
+            const res = await fetch('/api/announcements/latest', { headers: getAuthHeaders() });
+            if (res.ok) {
+                const data = await res.json();
+                setActiveAnnouncement(data.announcement || null);
+            }
+        } catch (err) {
+            console.error('Fetch announcement error:', err);
+        } finally {
+            setLoadingAnnouncement(false);
+        }
+    };
+
+    const handleDeactivateAnnouncement = async () => {
+        try {
+            const res = await fetch('/api/admin/announcements', {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            if (res.ok) {
+                setActiveAnnouncement(null);
+                setPublishMessage({ type: 'success', text: 'Announcement deactivated.' });
+            } else {
+                setPublishMessage({ type: 'error', text: 'Failed to deactivate announcement.' });
+            }
+        } catch (err) {
+            console.error('Deactivate error:', err);
+            setPublishMessage({ type: 'error', text: 'Error connecting to API.' });
         }
     };
 
@@ -155,8 +179,10 @@ const AdminPanel: React.FC = () => {
             });
 
             if (res.ok) {
+                const data = await res.json();
                 setPublishMessage({ type: 'success', text: 'Announcement published successfully! It is now live for all users.' });
                 setAnnouncementText('');
+                setActiveAnnouncement(data.announcement);
             } else {
                 setPublishMessage({ type: 'error', text: 'Failed to publish announcement.' });
             }
@@ -187,49 +213,28 @@ const AdminPanel: React.FC = () => {
             setError('Please select an image file first.');
             return;
         }
-        if (!process.env.API_KEY) {
-            setError("API_KEY is not configured. Please set it up to use the scanner.");
-            return;
-        }
 
         setIsLoading(true);
         setGeneratedJson('');
         setError('');
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const base64Data = await blobToBase64(image);
+            const formDataPayload = new FormData();
+            formDataPayload.append('image', image);
 
-            const imagePart = { inlineData: { mimeType: image.type, data: base64Data } };
-            const textPart = {
-                text: `Analyze the attached image of a musician's union contract document. Extract all relevant information to create a complete JSON configuration for a single 'ContractType' object that can be used in our system.
-- Infer a unique 'id' (e.g., 'local_live_engagement'), a descriptive 'name', and a 'formIdentifier'.
-- Determine the 'calculationModel' (e.g., 'live_engagement', 'media_report', 'contribution_only') and 'signatureType' (e.g., 'engagement', 'media_report', 'member').
-- If present, extract 'jurisdiction' (e.g., 'Canada (Ontario)') and 'currency' details (symbol and code). If currency is not specified, assume USD.
-- Identify all fillable fields ('fields'). For each field, determine its 'id', 'label', 'type', 'required' status, and logical 'group'. Also extract any optional details like 'placeholder', 'description', 'options' for selects, 'min'/'minLength' values, 'dataSource' ('wageScales'), and a 'defaultValue'.
-- Extract all financial rules ('rules'), including premiums for 'leader' or 'doubling', 'overtimeRate', and contributions for 'pension', 'health', and 'workDues'. For each rule, capture the rate, a descriptive text, and what the calculation is based on (for 'pension' and 'workDues') or if it's a flat rate (for 'health').
-- Detail all 'wageScales'. For each scale, extract its unique 'id', 'name', 'rate', standard 'duration' in hours, and an optional 'description'.
-- If there is legal text, extract it into the 'legalText' object with appropriate keys (e.g., 'preamble', 'clause_governingLaw', 'clause_arbitrationL1'). The model should create logical keys for distinct clauses.
-- The 'summary' field must be an empty array '[]'.
-- Structure the entire output as a single, clean JSON object that strictly adheres to the provided schema. Do not include any extra explanations, comments, or markdown formatting.` };
-            const model = 'gemini-2.5-flash';
-
-            const response = await ai.models.generateContent({
-                model,
-                contents: { parts: [imagePart, textPart] },
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, formIdentifier: { type: Type.STRING }, calculationModel: { type: Type.STRING }, signatureType: { type: Type.STRING }, jurisdiction: { type: Type.STRING }, currency: { type: Type.OBJECT, properties: { symbol: { type: Type.STRING }, code: { type: Type.STRING } } }, fields: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, label: { type: Type.STRING }, type: { type: Type.STRING }, required: { type: Type.BOOLEAN }, group: { type: Type.STRING }, placeholder: { type: Type.STRING }, description: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, dataSource: { type: Type.STRING }, min: { type: Type.NUMBER }, minLength: { type: Type.NUMBER }, defaultValue: { type: Type.STRING } } } }, wageScales: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, rate: { type: Type.NUMBER }, duration: { type: Type.NUMBER }, description: { type: Type.STRING } } } }, rules: { type: Type.OBJECT, properties: { overtimeRate: { type: Type.NUMBER }, leaderPremium: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING } } }, doublingPremium: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING } } }, pensionContribution: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING }, basedOn: { type: Type.ARRAY, items: { type: Type.STRING } } } }, healthContribution: { type: Type.OBJECT, properties: { ratePerMusicianPerService: { type: Type.NUMBER }, description: { type: Type.STRING } } }, workDues: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING }, basedOn: { type: Type.ARRAY, items: { type: Type.STRING } } } } } }, summary: { type: Type.ARRAY, items: {} }, legalText: { type: Type.OBJECT, properties: { preamble: { type: Type.STRING }, clause_governingLaw: { type: Type.STRING }, clause_disputes: { type: Type.STRING } } } }
-                    }
-                }
+            const response = await fetch('/api/admin/scan', {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: formDataPayload,
             });
 
-            const jsonText = response.text || "{}";
-            const parsedJson = JSON.parse(jsonText);
-            setGeneratedJson(JSON.stringify(parsedJson, null, 2));
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.error || 'Scan failed');
+            }
 
+            const data = await response.json();
+            setGeneratedJson(JSON.stringify(data.result, null, 2));
         } catch (err) {
             console.error("AI Scan Error:", err);
             setError(err instanceof Error ? err.message : 'An error occurred during the AI scan.');
@@ -450,6 +455,26 @@ const AdminPanel: React.FC = () => {
                 {view === 'announcements' && (
                     <div className="bg-gray-800 p-6 rounded-lg shadow-lg max-w-2xl">
                         <h2 className="text-xl font-bold mb-4">Global Announcement</h2>
+
+                        <div className="mb-6 p-4 rounded-md border border-gray-600 bg-gray-900">
+                            <label className="block text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Currently Active</label>
+                            {loadingAnnouncement ? (
+                                <p className="text-sm text-gray-400">Loading...</p>
+                            ) : activeAnnouncement ? (
+                                <div className="flex items-start justify-between gap-4">
+                                    <p className="text-sm text-indigo-200">{activeAnnouncement.message}</p>
+                                    <button
+                                        onClick={handleDeactivateAnnouncement}
+                                        className="shrink-0 px-3 py-1 text-xs font-semibold rounded-md bg-red-800 hover:bg-red-700 text-white transition-colors"
+                                    >
+                                        Deactivate
+                                    </button>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-500 italic">No active announcement</p>
+                            )}
+                        </div>
+
                         <p className="text-sm text-gray-400 mb-6">
                             Publish a message that will appear as a banner at the top of the screen for all users.
                             Publishing a new announcement will immediately replace any currently active announcement.

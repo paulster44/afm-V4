@@ -3,8 +3,12 @@ import type { Prisma } from '@prisma/client';
 
 // Use z.any() for JSON blob fields — Prisma handles serialization,
 // and its InputJsonValue type is incompatible with z.record(z.unknown())
-const jsonObject = z.record(z.any()).transform((v): Prisma.InputJsonValue => v);
-const jsonArray = z.array(z.record(z.any())).transform((v): Prisma.InputJsonValue => v);
+const jsonObject = z.record(z.any())
+  .refine((v) => JSON.stringify(v).length < 500_000, { message: 'JSON object too large' })
+  .transform((v): Prisma.InputJsonValue => v);
+const jsonArray = z.array(z.record(z.any()))
+  .refine((v) => JSON.stringify(v).length < 500_000, { message: 'JSON array too large' })
+  .transform((v): Prisma.InputJsonValue => v);
 
 const versionSchema = z.object({
   name: z.string().min(1),

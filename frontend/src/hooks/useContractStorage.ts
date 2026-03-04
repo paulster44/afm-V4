@@ -93,8 +93,6 @@ export const useContractStorage = (localId: number, userId: string) => {
           })),
           activeVersionIndex,
         };
-        console.log('[useContractStorage] saveContract payload:', payload);
-
         const res = await fetch('/api/contracts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -134,8 +132,6 @@ export const useContractStorage = (localId: number, userId: string) => {
           })),
           activeVersionIndex,
         };
-        console.log('[useContractStorage] updateContract payload:', payload);
-
         const res = await fetch(`/api/contracts/${contractId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },

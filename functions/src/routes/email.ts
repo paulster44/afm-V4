@@ -6,7 +6,10 @@ import Busboy from 'busboy';
 const router = express.Router();
 
 // Initialize Resend with the API key from environment variables
-const resend = new Resend(process.env.RESEND_API_KEY || 'missing_key');
+if (!process.env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY environment variable is required');
+}
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 router.post('/', requireAuth, (req, res) => {
     // In Firebase Cloud Functions, the raw body is sometimes already parsed,
@@ -16,7 +19,7 @@ router.post('/', requireAuth, (req, res) => {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    const busboy = Busboy({ headers: req.headers });
+    const busboy = Busboy({ headers: req.headers, limits: { fileSize: 10 * 1024 * 1024 } });
     const fields: Record<string, any> = {};
     let fileBuffer: Buffer | null = null;
     let fileName = 'contract.pdf';
@@ -50,20 +53,33 @@ router.post('/', requireAuth, (req, res) => {
                 return res.status(400).json({ error: 'Recipient email is required' });
             }
 
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(to)) {
+                return res.status(400).json({ error: 'Invalid email format' });
+            }
+
             if (!fileBuffer) {
                 return res.status(400).json({ error: 'PDF file is required' });
             }
 
             const fromAddress = process.env.EMAIL_SENDER || 'contracts@fakturflow.phonikamedia.com';
 
+            const escapeHtml = (str: string) =>
+                str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
             const htmlMessage = message
-                ? `<p>${message.replace(/\n/g, '<br/>')}</p>`
+                ? `<p>${escapeHtml(message).replace(/\n/g, '<br/>')}</p>`
                 : `<p>Please find the attached Smart Contract PDF.</p>`;
+
+            // Sanitize subject: strip control chars and limit length
+            const sanitizedSubject = (subject || 'AFM Smart Contract PDF')
+                .replace(/[\x00-\x1F\x7F]/g, '')
+                .slice(0, 200);
 
             const { data, error } = await resend.emails.send({
                 from: `AFM Smart Contracts <${fromAddress}>`,
                 to: [to],
-                subject: subject || 'AFM Smart Contract PDF',
+                subject: sanitizedSubject,
                 html: htmlMessage,
                 attachments: [
                     {

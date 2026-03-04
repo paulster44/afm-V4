@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 
-const jsonObject = z.record(z.any()).transform((v): Prisma.InputJsonValue => v);
+const jsonObject = z.record(z.any())
+  .refine((v) => JSON.stringify(v).length < 500_000, { message: 'JSON object too large' })
+  .transform((v): Prisma.InputJsonValue => v);
 
 export const createLocalSchema = z.object({
   id: z.union([z.number(), z.string()]).transform((v) => typeof v === 'string' ? parseInt(v, 10) : v),

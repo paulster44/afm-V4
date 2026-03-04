@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
+import Busboy from 'busboy';
+import { GoogleGenAI, Type } from '@google/genai';
 import { prisma } from '../utils/prisma';
 import { auth } from '../utils/firebase';
 import { requireAuth, requireAdmin, requireGod, AuthRequest } from '../middleware/auth';
@@ -73,11 +75,11 @@ router.delete('/users/:id', requireGod, async (req: AuthRequest, res: Response) 
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Clean up orphaned workspaces (ownerUserId has no FK, won't cascade)
-        await prisma.workspace.deleteMany({ where: { ownerUserId: id } });
-
-        // Delete user — cascades: memberships, oauths, contracts (+versions), announcements
-        await prisma.user.delete({ where: { id } });
+        // Clean up orphaned workspaces + delete user atomically
+        await prisma.$transaction([
+            prisma.workspace.deleteMany({ where: { ownerUserId: id } }),
+            prisma.user.delete({ where: { id } }),
+        ]);
 
         // Remove from Firebase Auth (best-effort)
         try {
@@ -167,6 +169,21 @@ router.post('/announcements', requireAdmin, async (req: AuthRequest, res: Respon
     }
 });
 
+// DELETE /api/admin/announcements
+// Deactivate all active announcements (ADMIN and GOD)
+router.delete('/announcements', requireAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        await prisma.announcement.updateMany({
+            where: { isActive: true },
+            data: { isActive: false }
+        });
+        res.json({ message: 'Announcement deactivated' });
+    } catch (error) {
+        console.error('[DELETE /admin/announcements]', error);
+        res.status(500).json({ error: 'Failed to deactivate announcement' });
+    }
+});
+
 // GET /api/admin/usage
 // Fetch real usage statistics from the database (ADMIN and GOD)
 router.get('/usage', requireAdmin, async (req: AuthRequest, res: Response) => {
@@ -229,6 +246,96 @@ router.get('/usage', requireAdmin, async (req: AuthRequest, res: Response) => {
     } catch (error) {
         console.error('[GET /admin/usage]', error);
         res.status(500).json({ error: 'Failed to fetch usage stats' });
+    }
+});
+
+// POST /api/admin/scan
+// Proxy contract image to Gemini AI for JSON extraction (ADMIN and GOD)
+router.post('/scan', requireAdmin, (req: AuthRequest, res: Response) => {
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (!geminiApiKey) {
+        return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+    }
+
+    const busboy = Busboy({ headers: req.headers, limits: { fileSize: 10 * 1024 * 1024 } });
+    let fileBuffer: Buffer | null = null;
+    let fileMimeType = 'image/png';
+
+    busboy.on('file', (fieldname, file, info) => {
+        if (fieldname === 'image') {
+            fileMimeType = info.mimeType;
+            const chunks: Buffer[] = [];
+            file.on('data', (data) => chunks.push(data));
+            file.on('end', () => { fileBuffer = Buffer.concat(chunks); });
+        } else {
+            file.resume();
+        }
+    });
+
+    busboy.on('finish', async () => {
+        if (!fileBuffer) {
+            return res.status(400).json({ error: 'Image file is required' });
+        }
+
+        try {
+            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+            const base64Data = fileBuffer.toString('base64');
+
+            const imagePart = { inlineData: { mimeType: fileMimeType, data: base64Data } };
+            const textPart = {
+                text: `Analyze the attached image of a musician's union contract document. Extract all relevant information to create a complete JSON configuration for a single 'ContractType' object that can be used in our system.
+- Infer a unique 'id' (e.g., 'local_live_engagement'), a descriptive 'name', and a 'formIdentifier'.
+- Determine the 'calculationModel' (e.g., 'live_engagement', 'media_report', 'contribution_only') and 'signatureType' (e.g., 'engagement', 'media_report', 'member').
+- If present, extract 'jurisdiction' (e.g., 'Canada (Ontario)') and 'currency' details (symbol and code). If currency is not specified, assume USD.
+- Identify all fillable fields ('fields'). For each field, determine its 'id', 'label', 'type', 'required' status, and logical 'group'. Also extract any optional details like 'placeholder', 'description', 'options' for selects, 'min'/'minLength' values, 'dataSource' ('wageScales'), and a 'defaultValue'.
+- Extract all financial rules ('rules'), including premiums for 'leader' or 'doubling', 'overtimeRate', and contributions for 'pension', 'health', and 'workDues'. For each rule, capture the rate, a descriptive text, and what the calculation is based on (for 'pension' and 'workDues') or if it's a flat rate (for 'health').
+- Detail all 'wageScales'. For each scale, extract its unique 'id', 'name', 'rate', standard 'duration' in hours, and an optional 'description'.
+- If there is legal text, extract it into the 'legalText' object with appropriate keys (e.g., 'preamble', 'clause_governingLaw', 'clause_arbitrationL1'). The model should create logical keys for distinct clauses.
+- The 'summary' field must be an empty array '[]'.
+- Structure the entire output as a single, clean JSON object that strictly adheres to the provided schema. Do not include any extra explanations, comments, or markdown formatting.`
+            };
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: { parts: [imagePart, textPart] },
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            id: { type: Type.STRING }, name: { type: Type.STRING }, formIdentifier: { type: Type.STRING },
+                            calculationModel: { type: Type.STRING }, signatureType: { type: Type.STRING }, jurisdiction: { type: Type.STRING },
+                            currency: { type: Type.OBJECT, properties: { symbol: { type: Type.STRING }, code: { type: Type.STRING } } },
+                            fields: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, label: { type: Type.STRING }, type: { type: Type.STRING }, required: { type: Type.BOOLEAN }, group: { type: Type.STRING }, placeholder: { type: Type.STRING }, description: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, dataSource: { type: Type.STRING }, min: { type: Type.NUMBER }, minLength: { type: Type.NUMBER }, defaultValue: { type: Type.STRING } } } },
+                            wageScales: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, rate: { type: Type.NUMBER }, duration: { type: Type.NUMBER }, description: { type: Type.STRING } } } },
+                            rules: { type: Type.OBJECT, properties: { overtimeRate: { type: Type.NUMBER }, leaderPremium: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING } } }, doublingPremium: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING } } }, pensionContribution: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING }, basedOn: { type: Type.ARRAY, items: { type: Type.STRING } } } }, healthContribution: { type: Type.OBJECT, properties: { ratePerMusicianPerService: { type: Type.NUMBER }, description: { type: Type.STRING } } }, workDues: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING }, basedOn: { type: Type.ARRAY, items: { type: Type.STRING } } } } } },
+                            summary: { type: Type.ARRAY, items: {} },
+                            legalText: { type: Type.OBJECT, properties: { preamble: { type: Type.STRING }, clause_governingLaw: { type: Type.STRING }, clause_disputes: { type: Type.STRING } } }
+                        }
+                    }
+                }
+            });
+
+            const jsonText = response.text || '{}';
+            const parsedJson = JSON.parse(jsonText);
+            return res.json({ result: parsedJson });
+        } catch (err) {
+            console.error('[POST /admin/scan]', err);
+            return res.status(500).json({ error: err instanceof Error ? err.message : 'AI scan failed' });
+        }
+    });
+
+    busboy.on('error', (err) => {
+        console.error('[POST /admin/scan] Busboy error:', err);
+        return res.status(500).json({ error: 'Error processing upload' });
+    });
+
+    // @ts-ignore - rawBody is added by Firebase
+    if (req.rawBody) {
+        // @ts-ignore
+        busboy.end(req.rawBody);
+    } else {
+        req.pipe(busboy);
     }
 });
 

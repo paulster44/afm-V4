@@ -10,7 +10,6 @@
     "start": "vite preview"
   },
   "dependencies": {
-    "@google/genai": "^1.23.0",
     "axios": "^1.7.2",
     "firebase": "^12.10.0",
     "jspdf": "^2.5.1",

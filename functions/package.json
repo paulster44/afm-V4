@@ -17,6 +17,7 @@
     "seed": "ts-node prisma/seedLocals.ts"
   },
   "dependencies": {
+    "@google/genai": "^1.43.0",
     "@prisma/client": "^5.14.0",
     "@types/busboy": "^1.5.4",
     "bcryptjs": "^2.4.3",

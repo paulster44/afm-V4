@@ -5,5 +5,5 @@ export const updateRoleSchema = z.object({
 });
 
 export const createAnnouncementSchema = z.object({
-  message: z.string().min(1),
+  message: z.string().min(1).max(2000),
 });

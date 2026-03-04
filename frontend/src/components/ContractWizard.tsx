@@ -147,7 +147,7 @@ const ContractWizard: React.FC<ContractWizardProps> = ({ config, userId }) => {
             const subject = `Smart Contract PDF: ${fileName.replace('.pdf', '')}`;
             formDataPayload.append('subject', subject);
 
-            const apiUrl = import.meta.env.DEV ? 'http://localhost:8080/api/email' : '/api/email';
+            const apiUrl = '/api/email';
 
             const response = await fetch(apiUrl, {
                 method: 'POST',

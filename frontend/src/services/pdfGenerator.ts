@@ -199,12 +199,15 @@ export const generatePdf = (
     doc.line(musicianSignatureX, signatureY, musicianSignatureX + signatureBlockWidth, signatureY);
     doc.text("Signature of Musician/Leader", musicianSignatureX, signatureY + 5);
 
-    // --- Footer with Page Numbers and Ref ---
-    const totalPages = (doc as any).internal.getNumberOfPages();
+    // --- Generate Reference Number (used in footer and filename) ---
     const date = formData.engagementDate || formData.sessionDate || new Date().toISOString().split('T')[0];
     const refDate = String(date).replace(/-/g, '');
     const refTime = new Date().getTime().toString().slice(-6);
-    const referenceNumber = `Ref: ${refDate}-${refTime}`;
+    const refId = `${refDate}-${refTime}`;
+    const referenceNumber = `Ref: ${refId}`;
+
+    // --- Footer with Page Numbers and Ref ---
+    const totalPages = (doc as any).internal.getNumberOfPages();
 
     for (let i = 1; i <= totalPages; i++) {
         doc.setPage(i);
@@ -221,8 +224,7 @@ export const generatePdf = (
     }
 
     // --- Save PDF ---
-    const safeFileName = (str: string | number | undefined) => String(str || '').replace(/[^a-z0-9]/gi, '_');
-    const fileName = `${safeFileName(contractType.formIdentifier)}_${safeFileName(formData.purchaserName || formData.recordCompanyName || 'contract')}.pdf`;
+    const fileName = `Ref_${refId}.pdf`;
 
     return {
         blob: doc.output('blob'),

@@ -38,6 +38,7 @@ if (process.env.NODE_ENV === 'production') {
 const app = express();
 const port = process.env.PORT || 8080;
 
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(
   cors({
@@ -49,7 +50,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 const limiter = rateLimit({
@@ -74,7 +75,6 @@ router.use('/locals', localsRoutes);
 router.use('/email', emailRoutes);
 
 app.use('/api', router);
-app.use('/', router);
 
 import { onRequest } from 'firebase-functions/v2/https';
 
