@@ -1,6 +1,7 @@
 import express from 'express';
 import { Resend } from 'resend';
 import { requireAuth } from '../middleware/auth';
+import { prisma } from '../utils/prisma';
 import Busboy from 'busboy';
 
 const router = express.Router();
@@ -47,7 +48,7 @@ router.post('/', requireAuth, (req, res) => {
 
     busboy.on('finish', async () => {
         try {
-            const { to, subject, message } = fields;
+            const { to, subject, message, contractId, referenceNumber } = fields;
 
             if (!to) {
                 return res.status(400).json({ error: 'Recipient email is required' });
@@ -92,6 +93,22 @@ router.post('/', requireAuth, (req, res) => {
             if (error) {
                 console.error('Error sending email via Resend:', error);
                 return res.status(500).json({ error: 'Failed to send email. Please check configuration.' });
+            }
+
+            // Log the email send if tied to a saved contract
+            if (contractId && referenceNumber) {
+                try {
+                    await prisma.emailLog.create({
+                        data: {
+                            contractId,
+                            recipientEmail: to,
+                            referenceNumber,
+                            subject: sanitizedSubject,
+                        },
+                    });
+                } catch (logErr) {
+                    console.error('Failed to log email send:', logErr);
+                }
             }
 
             return res.status(200).json({ success: true, message: 'Email sent successfully', id: data?.id });

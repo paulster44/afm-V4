@@ -37,7 +37,7 @@ const apiToSavedContract = (c: any): SavedContract => ({
   })),
 });
 
-export const useContractStorage = (localId: number, userId: string) => {
+export const useContractStorage = (localId: number, userId: string, localName?: string) => {
   const { getAuthHeaders } = useAuth();
   const [savedContracts, setSavedContracts] = useState<SavedContract[]>([]);
 
@@ -65,7 +65,7 @@ export const useContractStorage = (localId: number, userId: string) => {
 
   const saveContract = useCallback(
     async (baseFormData: FormData, versions: ContractVersion[], contractTypeId: string, personnel: Person[], activeVersionIndex: number | null): Promise<SavedContract | null> => {
-      const name = String(
+      const autoName = String(
         baseFormData.purchaserName || baseFormData.recordCompanyName ||
         baseFormData.artistName || 'Unnamed Contract'
       );
@@ -78,11 +78,16 @@ export const useContractStorage = (localId: number, userId: string) => {
         alert('Cannot save contract without a contract type.');
         return null;
       }
+      const localSuffix = localName ? ` — Local ${localId} - ${localName}` : ` — Local ${localId}`;
+      const defaultName = `${autoName} (${date})${localSuffix}`;
+      const userInput = window.prompt('Name this contract:', defaultName);
+      if (userInput === null) return null; // cancelled
+      const name = userInput.trim() || defaultName;
       try {
         const payload = {
           localId,
           contractTypeId,
-          name: `${name} (${date})`,
+          name,
           baseFormData,
           personnel,
           versions: versions.map(v => ({
@@ -113,15 +118,21 @@ export const useContractStorage = (localId: number, userId: string) => {
 
   const updateContract = useCallback(
     async (contractId: string, baseFormData: FormData, versions: ContractVersion[], contractTypeId: string, personnel: Person[], activeVersionIndex: number | null): Promise<boolean> => {
-      const name = String(
+      const autoName = String(
         baseFormData.purchaserName || baseFormData.recordCompanyName ||
         baseFormData.artistName || 'Unnamed Contract'
       );
       const date = String(baseFormData.engagementDate || baseFormData.sessionDate || '');
+      const localSuffix = localName ? ` — Local ${localId} - ${localName}` : ` — Local ${localId}`;
+      const defaultName = `${autoName} (${date})${localSuffix}`;
+      const existingContract = savedContracts.find(c => c.id === contractId);
+      const userInput = window.prompt('Name this contract:', existingContract?.name || defaultName);
+      if (userInput === null) return false; // cancelled
+      const name = userInput.trim() || defaultName;
       try {
         const payload = {
           contractTypeId,
-          name: `${name} (${date})`,
+          name,
           baseFormData,
           personnel,
           versions: versions.map(v => ({

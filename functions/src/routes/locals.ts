@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma';
-import { requireAuth, requireAdmin } from '../middleware/auth';
+import { requireAuth, requireSuperAdmin } from '../middleware/auth';
 import { createLocalSchema, updateLocalSchema } from '../schemas/locals';
 
 const router = express.Router();
@@ -50,7 +50,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/locals -> Create a new local configuration (Admin Only)
-router.post('/', requireAuth, requireAdmin, async (req, res) => {
+router.post('/', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const data = createLocalSchema.parse(req.body);
 
@@ -76,7 +76,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // PUT /api/locals/:id -> Update an existing local configuration (Admin Only)
-router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
+router.put('/:id', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const localId = parseInt(req.params.id, 10);
         if (isNaN(localId)) {
@@ -104,7 +104,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // DELETE /api/locals/:id -> Delete a local configuration (Admin Only)
-router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
+router.delete('/:id', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const localId = parseInt(req.params.id, 10);
         if (isNaN(localId)) {

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, ReactNode, useEffect } from 'react';
 import { onAuthStateChanged, signOut, getIdToken } from 'firebase/auth';
 import { auth } from '../utils/firebase';
 import type { User } from '../types';
@@ -15,6 +15,7 @@ type AuthContextType = {
   logout: () => Promise<void>;
   isAuthenticated: () => boolean;
   getAuthHeaders: () => Record<string, string>;
+  getFreshAuthHeaders: () => Promise<Record<string, string>>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,7 +50,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const data = await response.json();
             setAuthState({
               token,
-              user: { ...data.user, uid: data.user.id, isAdmin: data.user.isAdmin ?? false, isGod: data.user.isGod ?? false },
+              user: { ...data.user, uid: data.user.id, isAdmin: data.user.isAdmin ?? false, isSuperAdmin: data.user.isSuperAdmin ?? false, isGod: data.user.isGod ?? false },
               loading: false,
               suspendedAt: null,
             });
@@ -93,6 +94,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return {};
   };
 
+  const getFreshAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      const freshToken = await getIdToken(currentUser, true);
+      return { 'Authorization': `Bearer ${freshToken}` };
+    }
+    return {};
+  }, []);
+
   if (authState.loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900 px-4">
@@ -102,7 +112,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   return (
-    <AuthContext.Provider value={{ authState, logout, isAuthenticated, getAuthHeaders }}>
+    <AuthContext.Provider value={{ authState, logout, isAuthenticated, getAuthHeaders, getFreshAuthHeaders }}>
       {children}
     </AuthContext.Provider>
   );

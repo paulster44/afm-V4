@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import UsageDashboard from './UsageDashboard';
 import { useAuth } from '../contexts/AuthContext';
 import LocalConfigEditor from './LocalConfigEditor';
+import BatchIngestion from './BatchIngestion';
 
-type AdminPanelView = 'scanner' | 'usage' | 'users' | 'announcements' | 'locals';
+type AdminPanelView = 'scanner' | 'usage' | 'users' | 'announcements' | 'locals' | 'batch' | 'notepad';
 
 type PlatformUser = {
     id: string;
@@ -17,11 +18,12 @@ type PlatformUser = {
 
 const AdminPanel: React.FC = () => {
     const { authState, getAuthHeaders } = useAuth();
-    // Use the backend's isGod flag
+    // Use the backend's role flags
+    const isSuperAdmin = authState.user?.isSuperAdmin || false;
     const isGod = authState.user?.isGod || false;
 
-    // Default view
-    const [view, setView] = useState<AdminPanelView>('scanner');
+    // Default view: superadmins/gods get scanner, regular admins get usage
+    const [view, setView] = useState<AdminPanelView>(isSuperAdmin ? 'scanner' : 'usage');
 
     // Scanner State
     const [image, setImage] = useState<File | null>(null);
@@ -43,6 +45,27 @@ const AdminPanel: React.FC = () => {
     const [activeAnnouncement, setActiveAnnouncement] = useState<{ id: string; message: string } | null>(null);
     const [loadingAnnouncement, setLoadingAnnouncement] = useState(false);
 
+    // Notepad State
+    type AdminNote = {
+        id: string; content: string; category: string; isPinned: boolean;
+        parentId: string | null; createdByEmail: string; createdAt: string;
+        replies?: AdminNote[];
+    };
+    const NOTE_CATEGORIES = ['General', 'Change Log', 'Bug', 'TODO'] as const;
+    const CATEGORY_COLORS: Record<string, string> = {
+        'General': 'bg-gray-600 text-gray-200',
+        'Change Log': 'bg-blue-700 text-blue-100',
+        'Bug': 'bg-red-700 text-red-100',
+        'TODO': 'bg-amber-700 text-amber-100',
+    };
+    const [notes, setNotes] = useState<AdminNote[]>([]);
+    const [newNoteText, setNewNoteText] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState<string>('General');
+    const [replyingToId, setReplyingToId] = useState<string | null>(null);
+    const [replyText, setReplyText] = useState('');
+    const [loadingNotes, setLoadingNotes] = useState(false);
+    const [postingNote, setPostingNote] = useState(false);
+
     useEffect(() => {
         if (view === 'users' && isGod) {
             fetchUsers();
@@ -50,7 +73,10 @@ const AdminPanel: React.FC = () => {
         if (view === 'announcements') {
             fetchActiveAnnouncement();
         }
-    }, [view, isGod]);
+        if (view === 'notepad' && isSuperAdmin) {
+            fetchNotes();
+        }
+    }, [view, isGod, isSuperAdmin]);
 
     const fetchUsers = async () => {
         setLoadingUsers(true);
@@ -82,6 +108,109 @@ const AdminPanel: React.FC = () => {
             console.error('Fetch announcement error:', err);
         } finally {
             setLoadingAnnouncement(false);
+        }
+    };
+
+    const fetchNotes = async () => {
+        setLoadingNotes(true);
+        try {
+            const res = await fetch('/api/admin/notes', { headers: getAuthHeaders() });
+            if (res.ok) {
+                const data = await res.json();
+                setNotes(data.notes || []);
+            }
+        } catch (err) {
+            console.error('Fetch notes error:', err);
+        } finally {
+            setLoadingNotes(false);
+        }
+    };
+
+    const handlePostNote = async () => {
+        if (!newNoteText.trim()) return;
+        setPostingNote(true);
+        try {
+            const res = await fetch('/api/admin/notes', {
+                method: 'POST',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: newNoteText, category: selectedCategory }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setNotes(prev => [{ ...data.note, replies: [] }, ...prev]);
+                setNewNoteText('');
+            }
+        } catch (err) {
+            console.error('Post note error:', err);
+        } finally {
+            setPostingNote(false);
+        }
+    };
+
+    const handlePostReply = async (parentId: string) => {
+        if (!replyText.trim()) return;
+        setPostingNote(true);
+        try {
+            const res = await fetch('/api/admin/notes', {
+                method: 'POST',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: replyText, parentId }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setNotes(prev => prev.map(n =>
+                    n.id === parentId ? { ...n, replies: [...(n.replies || []), data.note] } : n
+                ));
+                setReplyText('');
+                setReplyingToId(null);
+            }
+        } catch (err) {
+            console.error('Post reply error:', err);
+        } finally {
+            setPostingNote(false);
+        }
+    };
+
+    const handleTogglePin = async (noteId: string) => {
+        try {
+            const res = await fetch(`/api/admin/notes/${noteId}/pin`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setNotes(prev => {
+                    const updated = prev.map(n => n.id === noteId ? { ...n, isPinned: data.note.isPinned } : n);
+                    return updated.sort((a, b) => {
+                        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+                        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                    });
+                });
+            }
+        } catch (err) {
+            console.error('Toggle pin error:', err);
+        }
+    };
+
+    const handleDeleteNote = async (noteId: string, parentId?: string | null) => {
+        try {
+            const res = await fetch(`/api/admin/notes/${noteId}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders(),
+            });
+            if (res.ok) {
+                if (parentId) {
+                    // Deleting a reply
+                    setNotes(prev => prev.map(n =>
+                        n.id === parentId ? { ...n, replies: (n.replies || []).filter(r => r.id !== noteId) } : n
+                    ));
+                } else {
+                    // Deleting a top-level note
+                    setNotes(prev => prev.filter(n => n.id !== noteId));
+                }
+            }
+        } catch (err) {
+            console.error('Delete note error:', err);
         }
     };
 
@@ -252,6 +381,18 @@ const AdminPanel: React.FC = () => {
         });
     };
 
+    const relativeTime = (dateStr: string) => {
+        const diff = Date.now() - new Date(dateStr).getTime();
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs}h ago`;
+        const days = Math.floor(hrs / 24);
+        if (days < 7) return `${days}d ago`;
+        return new Date(dateStr).toLocaleDateString();
+    };
+
     const tabClasses = (tabName: AdminPanelView) =>
         `px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${view === tabName
             ? 'bg-gray-800 text-white border-b-2 border-indigo-500'
@@ -286,24 +427,36 @@ const AdminPanel: React.FC = () => {
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
                 <div className="border-b border-gray-700 mb-6 flex items-center justify-between">
                     <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-                        <button onClick={() => setView('scanner')} className={tabClasses('scanner')}>
-                            Contract Scanner
-                        </button>
+                        {isSuperAdmin && (
+                            <button onClick={() => setView('scanner')} className={tabClasses('scanner')}>
+                                Contract Scanner
+                            </button>
+                        )}
+                        {isSuperAdmin && (
+                            <button onClick={() => setView('batch')} className={tabClasses('batch')}>
+                                Batch Ingestion
+                            </button>
+                        )}
                         <button onClick={() => setView('usage')} className={tabClasses('usage')}>
                             Usage Stats
                         </button>
                         <button onClick={() => setView('announcements')} className={tabClasses('announcements')}>
                             Announcements
                         </button>
+                        {isSuperAdmin && (
+                            <button onClick={() => setView('notepad')} className={tabClasses('notepad')}>
+                                Notepad
+                            </button>
+                        )}
+                        {isSuperAdmin && (
+                            <button onClick={() => setView('locals')} className={tabClasses('locals')}>
+                                Local Configs
+                            </button>
+                        )}
                         {isGod && (
-                            <>
-                                <button onClick={() => setView('locals')} className={tabClasses('locals')}>
-                                    Local Configs ⚡️
-                                </button>
-                                <button onClick={() => setView('users')} className={tabClasses('users')}>
-                                    Users & Roles ⚡️
-                                </button>
-                            </>
+                            <button onClick={() => setView('users')} className={tabClasses('users')}>
+                                Users & Roles
+                            </button>
                         )}
                     </nav>
                 </div>
@@ -351,6 +504,7 @@ const AdminPanel: React.FC = () => {
                                                     >
                                                         <option value="USER">User</option>
                                                         <option value="ADMIN">Admin</option>
+                                                        <option value="SUPERADMIN">SuperAdmin</option>
                                                         {user.role === 'GOD' && <option value="GOD">God</option>}
                                                     </select>
                                                 </td>
@@ -507,8 +661,164 @@ const AdminPanel: React.FC = () => {
                     </div>
                 )}
 
-                {view === 'locals' && isGod && (
+                {view === 'notepad' && isSuperAdmin && (
+                    <div className="bg-gray-800 p-6 rounded-lg shadow-lg max-w-3xl">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold">Admin Notepad</h2>
+                            <a
+                                href="https://afmsmartcontracts.slack.com/archives/C0AJKHTB5L7"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-md transition-colors border border-gray-600"
+                            >
+                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
+                                Join Slack Channel
+                            </a>
+                        </div>
+                        <p className="text-sm text-gray-400 mb-6">Leave notes for other admins about recent changes, issues, or reminders.</p>
+
+                        <div className="mb-6">
+                            <textarea
+                                value={newNoteText}
+                                onChange={e => setNewNoteText(e.target.value)}
+                                rows={3}
+                                className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="Write a note..."
+                            />
+                            <div className="flex items-center gap-3 mt-2">
+                                <select
+                                    value={selectedCategory}
+                                    onChange={e => setSelectedCategory(e.target.value)}
+                                    className="bg-gray-700 border border-gray-600 text-white text-sm rounded-md focus:ring-indigo-500 focus:border-indigo-500 py-2 px-3"
+                                >
+                                    {NOTE_CATEGORIES.map(cat => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={handlePostNote}
+                                    disabled={!newNoteText.trim() || postingNote}
+                                    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors text-sm"
+                                >
+                                    {postingNote ? 'Posting...' : 'Post Note'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {loadingNotes ? (
+                            <p className="text-gray-400 text-sm">Loading notes...</p>
+                        ) : notes.length === 0 ? (
+                            <p className="text-gray-500 text-sm italic">No notes yet.</p>
+                        ) : (
+                            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                                {notes.map(note => (
+                                    <div key={note.id} className="bg-gray-900 border border-gray-700 rounded-lg p-4">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-2 text-xs text-gray-400">
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${CATEGORY_COLORS[note.category] || CATEGORY_COLORS['General']}`}>
+                                                    {note.category}
+                                                </span>
+                                                {note.isPinned && (
+                                                    <span className="text-yellow-400" title="Pinned">📌</span>
+                                                )}
+                                                <span className="text-indigo-300 font-semibold">{note.createdByEmail}</span>
+                                                <span>·</span>
+                                                <span title={new Date(note.createdAt).toLocaleString()}>{relativeTime(note.createdAt)}</span>
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-gray-200 whitespace-pre-wrap mb-3">{note.content}</p>
+                                        <div className="flex items-center gap-3 text-xs">
+                                            <button
+                                                onClick={() => { setReplyingToId(replyingToId === note.id ? null : note.id); setReplyText(''); }}
+                                                className="text-gray-400 hover:text-indigo-300 transition-colors"
+                                            >
+                                                Reply {note.replies && note.replies.length > 0 ? `(${note.replies.length})` : ''}
+                                            </button>
+                                            {isGod && (
+                                                <button
+                                                    onClick={() => handleTogglePin(note.id)}
+                                                    className="text-gray-400 hover:text-yellow-300 transition-colors"
+                                                >
+                                                    {note.isPinned ? 'Unpin' : 'Pin'}
+                                                </button>
+                                            )}
+                                            {isGod && (
+                                                <button
+                                                    onClick={() => handleDeleteNote(note.id)}
+                                                    className="text-red-400 hover:text-red-300 transition-colors"
+                                                >
+                                                    Delete
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Replies */}
+                                        {note.replies && note.replies.length > 0 && (
+                                            <div className="mt-3 ml-4 border-l-2 border-gray-700 pl-4 space-y-2">
+                                                {note.replies.map(reply => (
+                                                    <div key={reply.id} className="bg-gray-800 border border-gray-700 rounded-md p-3">
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <div className="text-xs text-gray-400">
+                                                                <span className="text-indigo-300 font-semibold">{reply.createdByEmail}</span>
+                                                                <span className="mx-1">·</span>
+                                                                <span title={new Date(reply.createdAt).toLocaleString()}>{relativeTime(reply.createdAt)}</span>
+                                                            </div>
+                                                            {isGod && (
+                                                                <button
+                                                                    onClick={() => handleDeleteNote(reply.id, note.id)}
+                                                                    className="text-red-400 hover:text-red-300 text-xs"
+                                                                >
+                                                                    Delete
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-sm text-gray-200 whitespace-pre-wrap">{reply.content}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Inline reply form */}
+                                        {replyingToId === note.id && (
+                                            <div className="mt-3 ml-4 border-l-2 border-indigo-700 pl-4">
+                                                <textarea
+                                                    value={replyText}
+                                                    onChange={e => setReplyText(e.target.value)}
+                                                    rows={2}
+                                                    className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                    placeholder="Write a reply..."
+                                                    autoFocus
+                                                />
+                                                <div className="flex gap-2 mt-1">
+                                                    <button
+                                                        onClick={() => handlePostReply(note.id)}
+                                                        disabled={!replyText.trim() || postingNote}
+                                                        className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 text-white text-xs font-bold py-1.5 px-3 rounded transition-colors"
+                                                    >
+                                                        {postingNote ? 'Posting...' : 'Reply'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setReplyingToId(null); setReplyText(''); }}
+                                                        className="text-gray-400 hover:text-gray-300 text-xs py-1.5 px-3"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {view === 'locals' && (
                     <LocalConfigEditor />
+                )}
+
+                {view === 'batch' && (
+                    <BatchIngestion />
                 )}
                 {confirmDeleteUserId && (() => {
                     const targetUser = users.find(u => u.id === confirmDeleteUserId);

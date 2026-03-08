@@ -18,7 +18,8 @@ export const generatePdf = (
     contractType: ContractType,
     formData: FormData,
     calculationResults: CalculationResult[],
-    personnel: Person[]
+    personnel: Person[],
+    contractName?: string
 ) => {
     const doc = new jsPDF();
     const currency = contractType.currency || config.currency;
@@ -31,6 +32,11 @@ export const generatePdf = (
     // We'll use this to ensure tables and other content leave enough room.
     const SIGNATURE_BLOCK_HEIGHT = 60;
 
+    // --- Generate Reference Number early (used in header, footer, and filename) ---
+    const refDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const refDigits = new Date().getTime().toString().slice(-5);
+    const refId = `${refDate}-${refDigits}`;
+
     // --- Header ---
     doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
@@ -39,6 +45,16 @@ export const generatePdf = (
     doc.setFont('helvetica', 'normal');
     doc.text(`Generated for ${config.localName}`, pageWidth / 2, 28, { align: 'center' });
     lastY = 35;
+
+    if (contractName) {
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(contractName, pageWidth / 2, lastY, { align: 'center' });
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Ref: ${refId}`, pageWidth / 2, lastY + 6, { align: 'center' });
+        lastY += 14;
+    }
 
     // --- Contract Details ---
     const formFields = contractType.fields;
@@ -199,10 +215,6 @@ export const generatePdf = (
     doc.line(musicianSignatureX, signatureY, musicianSignatureX + signatureBlockWidth, signatureY);
     doc.text("Signature of Musician/Leader", musicianSignatureX, signatureY + 5);
 
-    // --- Generate Reference Number (used in footer and filename) ---
-    const refDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const refDigits = new Date().getTime().toString().slice(-5);
-    const refId = `${refDate}-${refDigits}`;
     const referenceNumber = `Ref: ${refId}`;
 
     // --- Footer with Page Numbers and Ref ---
@@ -223,10 +235,13 @@ export const generatePdf = (
     }
 
     // --- Save PDF ---
-    const fileName = `Ref_${refId}.pdf`;
+    const namePart = contractName
+        ? `_${contractName.replace(/[^a-zA-Z0-9]+/g, '_').replace(/_+$/, '')}`
+        : '';
+    const fileName = `ref_${refId}${namePart}.pdf`.toLowerCase();
 
     return {
         blob: doc.output('blob'),
-        fileName: fileName.toLowerCase()
+        fileName,
     };
 };

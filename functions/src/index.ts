@@ -17,6 +17,7 @@ import adminRoutes from './routes/admin';
 import announcementRoutes from './routes/announcements';
 import localsRoutes from './routes/locals';
 import emailRoutes from './routes/email';
+import batchRoutes from './routes/batch';
 
 // Run DB migrations asynchronously in the background after startup
 // so the HTTP server can pass health checks immediately
@@ -73,13 +74,14 @@ router.use('/admin', adminRoutes);
 router.use('/announcements', announcementRoutes);
 router.use('/locals', localsRoutes);
 router.use('/email', emailRoutes);
+router.use('/admin', batchRoutes);
 
 app.use('/api', router);
 
 import { onRequest } from 'firebase-functions/v2/https';
 
 // Export the Express app as a Firebase Cloud Function
-export const api = onRequest({ memory: "512MiB" }, app);
+export const api = onRequest({ memory: "1GiB", timeoutSeconds: 540 }, app);
 
 // If running as a standalone Node process (like in Cloud Run or local dev), start the server
 if (require.main === module) {

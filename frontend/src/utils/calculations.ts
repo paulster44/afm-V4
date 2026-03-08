@@ -22,7 +22,7 @@ export const calculateEngagement = (formData: FormData, contractType: ContractTy
     const numberOfRehearsingMusicians = personnel.filter(p => p.presentForRehearsal ?? true).length;
 
     let totalScaleWages = 0, totalRehearsal = 0, totalOvertime = 0, pensionContribution = 0, healthContribution = 0;
-    let totalPremiums = 0, totalCartage = 0, subtotalWages = 0, pensionableWages = 0, totalCost = 0;
+    let totalPremiums = 0, totalCartage = 0, totalAdditionalFees = 0, subtotalWages = 0, pensionableWages = 0, totalCost = 0;
 
     switch (calculationModel) {
         case 'live_engagement': {
@@ -86,7 +86,23 @@ export const calculateEngagement = (formData: FormData, contractType: ContractTy
             if (totalRehearsal > 0) results.push({ id: 'totalRehearsalPay', label: 'Total Rehearsal Pay', value: totalRehearsal });
             if (totalOvertime > 0) results.push({ id: 'totalOvertimePay', label: 'Total Overtime Pay', value: totalOvertime });
 
-            subtotalWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime;
+            // --- Additional Fees ---
+            if (contractType.additionalFees?.length) {
+                const feeTotalsByCategory: Record<string, number> = {};
+                contractType.additionalFees.forEach(fee => {
+                    const qty = Number(formData[`fee_${fee.id}`]) || 0;
+                    if (qty > 0) {
+                        const amount = fee.perMusician ? fee.rate * qty * numberOfMusicians : fee.rate * qty;
+                        feeTotalsByCategory[fee.category] = (feeTotalsByCategory[fee.category] || 0) + amount;
+                        totalAdditionalFees += amount;
+                    }
+                });
+                Object.entries(feeTotalsByCategory).forEach(([category, total]) => {
+                    results.push({ id: `fees_${category.toLowerCase().replace(/\s+/g, '_')}`, label: `${category} Fees`, value: total });
+                });
+            }
+
+            subtotalWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime + totalAdditionalFees;
             results.push({ id: 'subtotalWages', label: 'Subtotal Gross Wages', value: subtotalWages });
             break;
         }
@@ -101,24 +117,59 @@ export const calculateEngagement = (formData: FormData, contractType: ContractTy
             }
             results.push({ id: 'totalScaleWages', label: 'Total Session Wages', value: totalScaleWages });
             if (totalOvertime > 0) results.push({ id: 'overtimePay', label: 'Overtime Pay', value: totalOvertime });
-            subtotalWages = totalScaleWages + totalOvertime;
+
+            // --- Additional Fees ---
+            if (contractType.additionalFees?.length) {
+                const feeTotalsByCategory: Record<string, number> = {};
+                contractType.additionalFees.forEach(fee => {
+                    const qty = Number(formData[`fee_${fee.id}`]) || 0;
+                    if (qty > 0) {
+                        const amount = fee.perMusician ? fee.rate * qty * numberOfMusicians : fee.rate * qty;
+                        feeTotalsByCategory[fee.category] = (feeTotalsByCategory[fee.category] || 0) + amount;
+                        totalAdditionalFees += amount;
+                    }
+                });
+                Object.entries(feeTotalsByCategory).forEach(([category, total]) => {
+                    results.push({ id: `fees_${category.toLowerCase().replace(/\s+/g, '_')}`, label: `${category} Fees`, value: total });
+                });
+            }
+
+            subtotalWages = totalScaleWages + totalOvertime + totalAdditionalFees;
             break;
         }
         case 'contribution_only': {
             pensionableWages = getVal('totalPensionableWages');
             const pensionPercentage = getVal('pensionContributionPercentage');
             healthContribution = getVal('healthContributionAmount');
+
+            // --- Additional Fees ---
+            if (contractType.additionalFees?.length) {
+                const feeTotalsByCategory: Record<string, number> = {};
+                contractType.additionalFees.forEach(fee => {
+                    const qty = Number(formData[`fee_${fee.id}`]) || 0;
+                    if (qty > 0) {
+                        const amount = fee.perMusician ? fee.rate * qty * numberOfMusicians : fee.rate * qty;
+                        feeTotalsByCategory[fee.category] = (feeTotalsByCategory[fee.category] || 0) + amount;
+                        totalAdditionalFees += amount;
+                    }
+                });
+                Object.entries(feeTotalsByCategory).forEach(([category, total]) => {
+                    results.push({ id: `fees_${category.toLowerCase().replace(/\s+/g, '_')}`, label: `${category} Fees`, value: total });
+                });
+            }
+
             pensionContribution = pensionableWages * (pensionPercentage / 100);
             results.push({ id: 'pensionableWages', label: 'Total Pensionable Wages', value: pensionableWages });
             results.push({ id: 'pensionContribution', label: `Pension Contribution (${pensionPercentage}%)`, value: pensionContribution });
             if (healthContribution > 0) results.push({ id: 'healthContribution', label: 'Health Contribution', value: healthContribution });
-            totalCost = pensionContribution + healthContribution;
+            if (totalAdditionalFees > 0) results.push({ id: 'totalAdditionalFees', label: 'Total Additional Fees', value: totalAdditionalFees });
+            totalCost = pensionContribution + healthContribution + totalAdditionalFees;
             results.push({ id: 'totalContributions', label: 'Total Contributions Due', value: totalCost });
             return results;
         }
     }
 
-    pensionableWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime; // Pension is typically on all gross wages
+    pensionableWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime + totalAdditionalFees; // Pension is typically on all gross wages
 
     if (rules?.pensionContribution) {
         pensionContribution = pensionableWages * (rules.pensionContribution.rate / 100);
@@ -144,19 +195,37 @@ export const calculateEngagement = (formData: FormData, contractType: ContractTy
         totalCost += perDiem + travelExpenses;
     }
 
-    // --- Dynamic Currency Fields (e.g., Tips, Custom Costs) ---
+    // --- Dynamic Currency Fields (e.g., Tips, Custom Costs, Deposits) ---
     const ignoredCurrencyFields = ['rehearsalRate', 'scaleWages', 'totalScaleWages', 'perDiem', 'travelExpenses', 'healthContributionAmount', 'pensionContributionPercentage'];
+    let totalDeductions = 0;
+    const deductionResults: CalculationResult[] = [];
+
     contractType.fields.forEach(field => {
         if (field.type === 'currency' && !ignoredCurrencyFields.includes(field.id)) {
             const val = getVal(field.id);
             if (val > 0) {
-                results.push({ id: field.id, label: field.label, value: val });
-                totalCost += val;
+                // A field is a deduction if explicitly marked with subtracts:true,
+                // or if its id contains "deposit" (handles existing DB configs without the flag)
+                const isDeduction = field.subtracts === true || field.id.toLowerCase().includes('deposit');
+                if (isDeduction) {
+                    totalDeductions += val;
+                    deductionResults.push({ id: field.id, label: field.label, value: -val });
+                } else {
+                    results.push({ id: field.id, label: field.label, value: val });
+                    totalCost += val;
+                }
             }
         }
     });
 
     results.push({ id: 'totalBenefits', label: 'Total Benefits', value: totalBenefits });
     results.push({ id: 'totalEngagementCost', label: 'Total Engagement Cost', value: totalCost });
+
+    // Deductions (e.g., deposit received) appear after the total, followed by Balance Due
+    if (deductionResults.length > 0) {
+        deductionResults.forEach(r => results.push(r));
+        results.push({ id: 'balanceDue', label: 'Balance Due', value: totalCost - totalDeductions });
+    }
+
     return results;
 };

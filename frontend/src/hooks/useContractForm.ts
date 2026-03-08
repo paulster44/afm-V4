@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import type { ContractType, Field, FormData } from '../types';
+import type { ContractType, AdditionalFee, Field, FormData } from '../types';
 
 type UseContractFormOptions = {
     contractType: ContractType | undefined;
@@ -7,15 +7,14 @@ type UseContractFormOptions = {
 };
 
 export const getInitialFormData = (ct?: ContractType): FormData =>
-    ct ? ct.fields.reduce((acc, field) => ({ ...acc, [field.id]: field.defaultValue ?? '' }), {}) : {};
+    ct?.fields ? ct.fields.reduce((acc, field) => ({ ...acc, [field.id]: field.defaultValue ?? '' }), {}) : {};
 
 export const useContractForm = ({ contractType, onDirty }: UseContractFormOptions) => {
     const [formData, setFormData] = useState<FormData>({});
     const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
-    const [openAccordion, setOpenAccordion] = useState<string | null>(null);
 
     const fieldGroups = useMemo(() => {
-        if (!contractType) return {};
+        if (!contractType?.fields) return {};
         return contractType.fields.reduce((acc, field) => {
             const groupName = field.group || 'Engagement Details';
             if (!acc[groupName]) acc[groupName] = [];
@@ -27,8 +26,17 @@ export const useContractForm = ({ contractType, onDirty }: UseContractFormOption
     const performanceScales = useMemo(() => contractType?.wageScales?.filter(s => !s.id.startsWith('ws_cartage_')) || [], [contractType]);
     const cartageScales = useMemo(() => contractType?.wageScales?.filter(s => s.id.startsWith('ws_cartage_')) || [], [contractType]);
 
+    const feeCategories = useMemo(() => {
+        if (!contractType?.additionalFees?.length) return {} as Record<string, AdditionalFee[]>;
+        return contractType.additionalFees.reduce((acc, fee) => {
+            if (!acc[fee.category]) acc[fee.category] = [];
+            acc[fee.category].push(fee);
+            return acc;
+        }, {} as Record<string, AdditionalFee[]>);
+    }, [contractType]);
+
     const orderedGroupNames = useMemo(() => {
-        if (!contractType) return [];
+        if (!contractType?.fields) return [];
         const groupNamesInOrder = [...new Set(contractType.fields.map(f => f.group || 'Engagement Details'))];
 
         if (!groupNamesInOrder.includes('Personnel')) {
@@ -44,8 +52,21 @@ export const useContractForm = ({ contractType, onDirty }: UseContractFormOption
                 }
             }
         }
+        // Append additional fee categories after Personnel
+        const feeCatNames = Object.keys(feeCategories);
+        feeCatNames.forEach(cat => {
+            if (!groupNamesInOrder.includes(cat)) {
+                const personnelIdx = groupNamesInOrder.indexOf('Personnel');
+                if (personnelIdx > -1) {
+                    groupNamesInOrder.splice(personnelIdx + 1, 0, cat);
+                } else {
+                    groupNamesInOrder.push(cat);
+                }
+            }
+        });
+
         return groupNamesInOrder;
-    }, [contractType]);
+    }, [contractType, feeCategories]);
 
     // Validation effect
     useEffect(() => {
@@ -96,48 +117,37 @@ export const useContractForm = ({ contractType, onDirty }: UseContractFormOption
         onDirty();
     }, [onDirty]);
 
-    const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        if (event.key === 'Enter' && !event.shiftKey && !(event.target instanceof HTMLTextAreaElement)) {
-            event.preventDefault();
-            setOpenAccordion(currentAccordion => {
-                if (!currentAccordion || !contractType) return currentAccordion;
-                const currentGroupFields = fieldGroups[currentAccordion] || [];
-                const isSectionComplete = currentGroupFields.every(field => {
-                    if (!field.required) return true;
-                    const value = formData[field.id];
-                    if (value === '' || value === undefined || value === null) return false;
-                    if (field.minLength && String(value).length < field.minLength) return false;
-                    return true;
-                });
-                if (isSectionComplete) {
-                    const currentIdx = orderedGroupNames.indexOf(currentAccordion);
-                    if (currentIdx > -1 && currentIdx < orderedGroupNames.length - 1) {
-                        return orderedGroupNames[currentIdx + 1];
-                    }
-                }
-                return currentAccordion;
-            });
-        }
-    }, [contractType, fieldGroups, orderedGroupNames, formData]);
+    const validateStep = useCallback((groupName: string): Record<string, string> => {
+        if (!contractType) return {};
+        const stepErrors: Record<string, string> = {};
+        const fieldsInGroup = fieldGroups[groupName] || [];
+        fieldsInGroup.forEach(field => {
+            const value = formData[field.id];
+            if (field.required && (value === '' || value === null || value === undefined)) {
+                stepErrors[field.id] = `${field.label} is required.`;
+            } else if (field.minLength && String(value || '').length < field.minLength) {
+                stepErrors[field.id] = `${field.label} must be at least ${field.minLength} characters.`;
+            }
+        });
+        return stepErrors;
+    }, [contractType, fieldGroups, formData]);
 
     const resetFormState = useCallback((ct?: ContractType) => {
         setFormData(getInitialFormData(ct));
         setFormErrors({});
-        setOpenAccordion(null);
     }, []);
 
     return {
         formData,
         setFormData,
         formErrors,
-        openAccordion,
-        setOpenAccordion,
         fieldGroups,
         orderedGroupNames,
         performanceScales,
         cartageScales,
+        feeCategories,
         handleChange,
-        handleKeyDown,
+        validateStep,
         resetFormState,
     };
 };

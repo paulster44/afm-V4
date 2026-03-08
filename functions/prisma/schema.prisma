@@ -12,7 +12,7 @@ model User {
   email        String         @unique
   name         String?
   passwordHash String?
-  role         String         @default("USER") // 'USER', 'ADMIN', 'GOD'
+  role         String         @default("USER") // 'USER', 'ADMIN', 'SUPERADMIN', 'GOD'
   suspendedAt  DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -98,6 +98,7 @@ model Contract {
 
   user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   versions ContractVersion[]
+  emailLogs EmailLog[]
 
   @@index([userId, localId])
 }
@@ -125,10 +126,54 @@ model Announcement {
   user User @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
 }
 
+model EmailLog {
+  id              String   @id @default(uuid())
+  contractId      String
+  recipientEmail  String
+  referenceNumber String
+  subject         String
+  sentAt          DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
 model LocalConfig {
   id        Int      @id // Corresponds to localId (e.g., 802, 47)
   name      String
   config    Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model AdminNote {
+  id              String      @id @default(uuid())
+  content         String
+  category        String      @default("General")
+  isPinned        Boolean     @default(false)
+  parentId        String?
+  createdByUserId String
+  createdByEmail  String
+  createdAt       DateTime    @default(now())
+
+  parent   AdminNote?  @relation("NoteReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  AdminNote[] @relation("NoteReplies")
+
+  @@index([createdAt])
+  @@index([parentId])
+}
+
+model PendingContractType {
+  id              String   @id @default(uuid())
+  localId         Int
+  sourceFileName  String
+  status          String   @default("pending") // pending, approved, rejected
+  parsedData      Json
+  error           String?
+  createdByUserId String
+  batchId         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([localId, status])
+  @@index([batchId])
 }

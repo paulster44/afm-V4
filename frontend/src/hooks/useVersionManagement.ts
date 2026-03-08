@@ -68,6 +68,22 @@ export const useVersionManagement = (opts: UseVersionManagementOptions) => {
         }
     }, [opts, currentVersions, loadedContractId]);
 
+    const handleSaveAsNew = useCallback(async () => {
+        if (!opts.contractType) return;
+
+        const versionIndex = opts.activeVersionId
+            ? currentVersions.findIndex(v => v.id === opts.activeVersionId)
+            : null;
+        const activeIdx = versionIndex !== null && versionIndex >= 0 ? versionIndex : null;
+
+        const newContract = await opts.saveContract(opts.formData, currentVersions, opts.selectedContractTypeId, opts.personnel, activeIdx);
+        if (newContract) {
+            alert('Contract saved as new copy!');
+            setLoadedContractId(newContract.id);
+            opts.clearDraft(opts.selectedContractTypeId);
+        }
+    }, [opts, currentVersions]);
+
     const handleResetContract = useCallback(() => {
         if (window.confirm('Are you sure you want to start a new contract? This will clear all fields and return to the selection screen.')) {
             opts.clearDraft(opts.selectedContractTypeId);
@@ -124,6 +140,7 @@ export const useVersionManagement = (opts: UseVersionManagementOptions) => {
         loadedContractId,
         handleSaveVersion,
         handleSaveContract,
+        handleSaveAsNew,
         handleLoadContract,
         handleDeleteCurrentVersion,
         handleResetContract,

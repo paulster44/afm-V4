@@ -44,7 +44,7 @@
         { "id": "overtimeHours", "label": "Additional Overtime Hours", "type": "number", "required": false, "min": 0, "group": "Compensation", "description": "Enter any *additional*, pre-negotiated overtime hours here. This is for special cases (e.g., compensating for long breaks). Do NOT re-enter overtime that is already automatically calculated from the 'Actual Engagement Duration' above. This value is added on top of the automatic calculation." },
         { "id": "rehearsalHours", "label": "Rehearsal Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" },
         { "id": "rehearsalRate", "label": "Rehearsal Rate (per hour, per musician)", "type": "currency", "required": false, "min": 0, "group": "Compensation" },
-        { "id": "depositAmount", "label": "Deposit Amount", "type": "currency", "required": false, "min": 0, "group": "Financial Terms" },
+        { "id": "depositAmount", "label": "Deposit Amount", "type": "currency", "required": false, "min": 0, "group": "Financial Terms", "subtracts": true },
         { "id": "balanceDueDate", "label": "Balance Due Date", "type": "date", "required": false, "group": "Financial Terms" },
         { "id": "additionalTerms", "label": "Additional Terms & Conditions", "type": "textarea", "required": false, "group": "Additional Terms" }
       ],
@@ -87,7 +87,7 @@
         { "id": "venueName", "label": "Venue Name & Address", "type": "textarea", "required": true, "group": "Engagement Details" },
         { "id": "rehearsalHours", "label": "Rehearsal Hours", "type": "number", "required": false, "min": 0, "group": "Compensation" },
         { "id": "rehearsalRate", "label": "Rehearsal Rate (per hour, per musician)", "type": "currency", "required": false, "min": 0, "group": "Compensation" },
-        { "id": "depositAmount", "label": "Advance Deposit", "type": "currency", "required": false, "min": 0, "group": "Financial Terms" },
+        { "id": "depositAmount", "label": "Advance Deposit", "type": "currency", "required": false, "min": 0, "group": "Financial Terms", "subtracts": true },
         { "id": "additionalTerms", "label": "Additional Terms", "type": "textarea", "required": false, "group": "Additional Terms" }
       ],
       "rules": {

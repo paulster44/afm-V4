@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { auth } from '../utils/firebase';
 import { prisma } from '../utils/prisma';
 
-export type UserRole = 'USER' | 'ADMIN' | 'GOD';
+export type UserRole = 'USER' | 'ADMIN' | 'SUPERADMIN' | 'GOD';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -55,8 +55,16 @@ export const requireAuth = async (req: AuthRequest, res: Response, next: NextFun
 
 export const requireAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
   // Rely on requireAuth to have run first
-  if (!req.user || (req.user.role !== 'ADMIN' && req.user.role !== 'GOD')) {
+  if (!req.user || (req.user.role !== 'ADMIN' && req.user.role !== 'SUPERADMIN' && req.user.role !== 'GOD')) {
     return res.status(403).json({ error: 'Forbidden: Requires Admin Privileges' });
+  }
+  next();
+};
+
+export const requireSuperAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  // Rely on requireAuth to have run first
+  if (!req.user || (req.user.role !== 'SUPERADMIN' && req.user.role !== 'GOD')) {
+    return res.status(403).json({ error: 'Forbidden: Requires SuperAdmin Privileges' });
   }
   next();
 };

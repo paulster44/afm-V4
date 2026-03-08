@@ -6,20 +6,24 @@ export type User = {
   email: string;
   role: string;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isGod: boolean;
 };
 
-// --- USAGE STATS TYPES ---
 export type UserUsage = {
   uid: string;
   email: string;
-  totalTokens: number;
-  lastActive: string;
+  totalContracts: number;
+  totalVersions: number;
+  totalActions: number;
+  lastActive: string | null;
 };
 
 export type UsageStats = {
-  totalTokensLifetime: number;
-  totalTokensToday: number;
+  totalContractsLifetime: number;
+  totalVersionsLifetime: number;
+  contractsToday: number;
+  versionsToday: number;
   userUsage: UserUsage[];
 };
 
@@ -39,6 +43,7 @@ export type Field = {
   description?: string;
   group?: string;
   dataSource?: 'wageScales';
+  subtracts?: boolean; // When true, this field's value is subtracted from the total (e.g. deposit)
 };
 
 export type Rule = {
@@ -74,9 +79,26 @@ export type WageScale = {
   description?: string;
 };
 
+export type AdditionalFee = {
+  id: string;
+  name: string;
+  rate: number;
+  category: string;
+  perMusician: boolean;
+};
+
 export type Currency = {
   symbol: string;
   code: string;
+};
+
+export type StepMeta = {
+  description?: string;
+  condition?: {
+    field: string;
+    operator: 'eq' | 'neq' | 'gt' | 'exists';
+    value: string | number | boolean;
+  };
 };
 
 export type ContractType = {
@@ -87,6 +109,7 @@ export type ContractType = {
   rules?: Rules;
   summary: SummaryItem[];
   wageScales?: WageScale[];
+  additionalFees?: AdditionalFee[];
   signatureType?: 'engagement' | 'media_report' | 'member' | 'petitioner';
   currency?: Currency;
   jurisdiction?: string;
@@ -95,6 +118,7 @@ export type ContractType = {
     [key: string]: string | undefined;
   };
   calculationModel?: 'live_engagement' | 'media_report' | 'contribution_only';
+  stepMeta?: Record<string, StepMeta>;
 };
 
 
@@ -133,6 +157,17 @@ export type ContractVersion = {
   createdAt: string;
   contractTypeId: string;
   personnel: Person[];
+};
+
+export type PendingContractType = {
+  id: string;
+  localId: number;
+  sourceFileName: string;
+  status: 'pending' | 'approved' | 'rejected' | 'error';
+  parsedData: ContractType | Record<string, never>;
+  error: string | null;
+  batchId: string;
+  createdAt: string;
 };
 
 export type SavedContract = {

@@ -185,6 +185,30 @@ router.post('/:id/versions', async (req: AuthRequest, res: Response) => {
     }
 });
 
+// GET /api/contracts/:id/emails
+// Returns email history for a contract (requires ownership)
+router.get('/:id/emails', async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user!.id;
+        const { id } = req.params;
+
+        const existing = await prisma.contract.findFirst({ where: { id, userId } });
+        if (!existing) {
+            return res.status(404).json({ error: 'Contract not found or access denied' });
+        }
+
+        const emailLogs = await prisma.emailLog.findMany({
+            where: { contractId: id },
+            orderBy: { sentAt: 'desc' },
+        });
+
+        res.json({ emailLogs });
+    } catch (error) {
+        console.error('[GET /contracts/:id/emails]', error);
+        res.status(500).json({ error: 'Failed to fetch email history' });
+    }
+});
+
 // DELETE /api/contracts/:id/versions/:versionId
 router.delete('/:id/versions/:versionId', async (req: AuthRequest, res: Response) => {
     try {

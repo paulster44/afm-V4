@@ -1,21 +1,82 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import OpenContractModal from './OpenContractModal';
+import type { SavedContract } from '../types';
 
 type LocalInfo = {
   id: number;
   name: string;
 };
 
+type RawContract = SavedContract & { localId: number };
+
 type LocalSelectorProps = {
   onSelectLocal: (id: number) => void;
   onLogout: () => void;
+  onLoadContract?: (contract: SavedContract, localId: number) => void;
 };
 
-const LocalSelector: React.FC<LocalSelectorProps> = ({ onSelectLocal, onLogout }) => {
+const LocalSelector: React.FC<LocalSelectorProps> = ({ onSelectLocal, onLogout, onLoadContract }) => {
+  const { getAuthHeaders } = useAuth();
   const [locals, setLocals] = useState<LocalInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string>('');
+
+  // --- Saved contracts modal ---
+  const [isOpenModalVisible, setIsOpenModalVisible] = useState(false);
+  const [allContracts, setAllContracts] = useState<RawContract[]>([]);
+
+  const fetchAllContracts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/contracts', { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setAllContracts(data.contracts || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch contracts:', err);
+    }
+  }, [getAuthHeaders]);
+
+  const handleOpenSaved = () => {
+    fetchAllContracts();
+    setIsOpenModalVisible(true);
+  };
+
+  const handleLoadFromModal = (contract: SavedContract) => {
+    const raw = allContracts.find(c => c.id === contract.id);
+    const localId = raw?.localId;
+    if (localId && onLoadContract) {
+      setIsOpenModalVisible(false);
+      onLoadContract(contract, localId);
+    } else if (localId) {
+      setIsOpenModalVisible(false);
+      onSelectLocal(localId);
+    }
+  };
+
+  const handleDeleteFromModal = async (id: string) => {
+    try {
+      await fetch(`/api/contracts/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
+      setAllContracts(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Failed to delete contract:', err);
+    }
+  };
+
+  const savedContractsForModal: SavedContract[] = allContracts.map(c => ({
+    id: c.id,
+    name: c.name,
+    baseFormData: c.baseFormData ?? {},
+    contractTypeId: c.contractTypeId,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    versions: c.versions || [],
+    personnel: c.personnel || [],
+    activeVersionIndex: c.activeVersionIndex ?? null,
+  }));
 
   useEffect(() => {
     const fetchLocals = async () => {
@@ -77,7 +138,7 @@ const LocalSelector: React.FC<LocalSelectorProps> = ({ onSelectLocal, onLogout }
             <option value="" disabled>-- Choose your local jurisdiction --</option>
             {locals.map(local => (
               <option key={local.id} value={local.id}>
-                {local.name}
+                Local {local.id} - {local.name}
               </option>
             ))}
           </select>
@@ -89,12 +150,30 @@ const LocalSelector: React.FC<LocalSelectorProps> = ({ onSelectLocal, onLogout }
         >
           Load Local Configuration
         </button>
+        <div className="relative my-4">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-600"></div></div>
+          <div className="relative flex justify-center text-sm"><span className="px-2 bg-gray-800 text-gray-400 uppercase tracking-wider font-semibold">or</span></div>
+        </div>
+        <button
+          type="button"
+          onClick={handleOpenSaved}
+          className="w-full flex justify-center py-3 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-slate-600 hover:bg-slate-500 transition-colors"
+        >
+          Open a Saved Contract
+        </button>
       </form>
     );
   };
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4 animate-fade-in">
+      <OpenContractModal
+        isOpen={isOpenModalVisible}
+        onClose={() => setIsOpenModalVisible(false)}
+        savedContracts={savedContractsForModal}
+        onLoadContract={handleLoadFromModal}
+        onDeleteContract={handleDeleteFromModal}
+      />
       <div className="bg-gray-800 p-8 rounded-xl shadow-lg text-center relative">
         <button
           onClick={onLogout}

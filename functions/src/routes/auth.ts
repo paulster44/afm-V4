@@ -64,7 +64,8 @@ router.get('/me', requireAuth, async (req: AuthRequest, res: Response) => {
         role: dbUser.role,
         createdAt: dbUser.createdAt,
         // Calculate isAdmin for legacy frontend convenience, but prefer explicit roles
-        isAdmin: dbUser.role === 'ADMIN' || dbUser.role === 'GOD',
+        isAdmin: dbUser.role === 'ADMIN' || dbUser.role === 'SUPERADMIN' || dbUser.role === 'GOD',
+        isSuperAdmin: dbUser.role === 'SUPERADMIN' || dbUser.role === 'GOD',
         isGod: dbUser.role === 'GOD',
       }
     });

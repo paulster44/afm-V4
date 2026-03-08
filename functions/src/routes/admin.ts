@@ -1,10 +1,10 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import Busboy from 'busboy';
-import { GoogleGenAI, Type } from '@google/genai';
 import { prisma } from '../utils/prisma';
 import { auth } from '../utils/firebase';
-import { requireAuth, requireAdmin, requireGod, AuthRequest } from '../middleware/auth';
+import { scanContractDocument } from '../utils/gemini';
+import { requireAuth, requireAdmin, requireSuperAdmin, requireGod, AuthRequest } from '../middleware/auth';
 import { updateRoleSchema, createAnnouncementSchema } from '../schemas/admin';
 
 const router = Router();
@@ -249,14 +249,88 @@ router.get('/usage', requireAdmin, async (req: AuthRequest, res: Response) => {
     }
 });
 
-// POST /api/admin/scan
-// Proxy contract image to Gemini AI for JSON extraction (ADMIN and GOD)
-router.post('/scan', requireAdmin, (req: AuthRequest, res: Response) => {
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-        return res.status(500).json({ error: 'GEMINI_API_KEY is not configured on the server.' });
+// GET /api/admin/notes
+// Fetch top-level admin notes with replies (SUPERADMIN and GOD)
+router.get('/notes', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const notes = await prisma.adminNote.findMany({
+            where: { parentId: null },
+            include: {
+                replies: {
+                    orderBy: { createdAt: 'asc' },
+                },
+            },
+            orderBy: [
+                { isPinned: 'desc' },
+                { createdAt: 'desc' },
+            ],
+            take: 50,
+        });
+        res.json({ notes });
+    } catch (error) {
+        console.error('[GET /admin/notes]', error);
+        res.status(500).json({ error: 'Failed to fetch notes' });
     }
+});
 
+// POST /api/admin/notes
+// Create a new admin note or reply (SUPERADMIN and GOD)
+router.post('/notes', requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+        const { content, category, parentId } = req.body;
+        if (!content || typeof content !== 'string' || !content.trim()) {
+            return res.status(400).json({ error: 'Content is required' });
+        }
+        const note = await prisma.adminNote.create({
+            data: {
+                content: content.trim(),
+                category: parentId ? 'General' : (category || 'General'),
+                parentId: parentId || null,
+                createdByUserId: req.user!.id,
+                createdByEmail: req.user!.email,
+            },
+        });
+        res.status(201).json({ note });
+    } catch (error) {
+        console.error('[POST /admin/notes]', error);
+        res.status(500).json({ error: 'Failed to create note' });
+    }
+});
+
+// PUT /api/admin/notes/:id/pin
+// Toggle pin on a note (GOD ONLY)
+router.put('/notes/:id/pin', requireGod, async (req: AuthRequest, res: Response) => {
+    try {
+        const note = await prisma.adminNote.findUnique({ where: { id: req.params.id } });
+        if (!note) {
+            return res.status(404).json({ error: 'Note not found' });
+        }
+        const updated = await prisma.adminNote.update({
+            where: { id: req.params.id },
+            data: { isPinned: !note.isPinned },
+        });
+        res.json({ note: updated });
+    } catch (error) {
+        console.error('[PUT /admin/notes/:id/pin]', error);
+        res.status(500).json({ error: 'Failed to toggle pin' });
+    }
+});
+
+// DELETE /api/admin/notes/:id
+// Delete an admin note (GOD ONLY)
+router.delete('/notes/:id', requireGod, async (req: AuthRequest, res: Response) => {
+    try {
+        await prisma.adminNote.delete({ where: { id: req.params.id } });
+        res.json({ message: 'Note deleted' });
+    } catch (error) {
+        console.error('[DELETE /admin/notes/:id]', error);
+        res.status(500).json({ error: 'Failed to delete note' });
+    }
+});
+
+// POST /api/admin/scan
+// Proxy contract image to Gemini AI for JSON extraction (SUPERADMIN and GOD)
+router.post('/scan', requireSuperAdmin, (req: AuthRequest, res: Response) => {
     const busboy = Busboy({ headers: req.headers, limits: { fileSize: 10 * 1024 * 1024 } });
     let fileBuffer: Buffer | null = null;
     let fileMimeType = 'image/png';
@@ -277,52 +351,11 @@ router.post('/scan', requireAdmin, (req: AuthRequest, res: Response) => {
             return res.status(400).json({ error: 'Image file is required' });
         }
 
-        try {
-            const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-            const base64Data = fileBuffer.toString('base64');
-
-            const imagePart = { inlineData: { mimeType: fileMimeType, data: base64Data } };
-            const textPart = {
-                text: `Analyze the attached image of a musician's union contract document. Extract all relevant information to create a complete JSON configuration for a single 'ContractType' object that can be used in our system.
-- Infer a unique 'id' (e.g., 'local_live_engagement'), a descriptive 'name', and a 'formIdentifier'.
-- Determine the 'calculationModel' (e.g., 'live_engagement', 'media_report', 'contribution_only') and 'signatureType' (e.g., 'engagement', 'media_report', 'member').
-- If present, extract 'jurisdiction' (e.g., 'Canada (Ontario)') and 'currency' details (symbol and code). If currency is not specified, assume USD.
-- Identify all fillable fields ('fields'). For each field, determine its 'id', 'label', 'type', 'required' status, and logical 'group'. Also extract any optional details like 'placeholder', 'description', 'options' for selects, 'min'/'minLength' values, 'dataSource' ('wageScales'), and a 'defaultValue'.
-- Extract all financial rules ('rules'), including premiums for 'leader' or 'doubling', 'overtimeRate', and contributions for 'pension', 'health', and 'workDues'. For each rule, capture the rate, a descriptive text, and what the calculation is based on (for 'pension' and 'workDues') or if it's a flat rate (for 'health').
-- Detail all 'wageScales'. For each scale, extract its unique 'id', 'name', 'rate', standard 'duration' in hours, and an optional 'description'.
-- If there is legal text, extract it into the 'legalText' object with appropriate keys (e.g., 'preamble', 'clause_governingLaw', 'clause_arbitrationL1'). The model should create logical keys for distinct clauses.
-- The 'summary' field must be an empty array '[]'.
-- Structure the entire output as a single, clean JSON object that strictly adheres to the provided schema. Do not include any extra explanations, comments, or markdown formatting.`
-            };
-
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: { parts: [imagePart, textPart] },
-                config: {
-                    responseMimeType: 'application/json',
-                    responseSchema: {
-                        type: Type.OBJECT,
-                        properties: {
-                            id: { type: Type.STRING }, name: { type: Type.STRING }, formIdentifier: { type: Type.STRING },
-                            calculationModel: { type: Type.STRING }, signatureType: { type: Type.STRING }, jurisdiction: { type: Type.STRING },
-                            currency: { type: Type.OBJECT, properties: { symbol: { type: Type.STRING }, code: { type: Type.STRING } } },
-                            fields: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, label: { type: Type.STRING }, type: { type: Type.STRING }, required: { type: Type.BOOLEAN }, group: { type: Type.STRING }, placeholder: { type: Type.STRING }, description: { type: Type.STRING }, options: { type: Type.ARRAY, items: { type: Type.STRING } }, dataSource: { type: Type.STRING }, min: { type: Type.NUMBER }, minLength: { type: Type.NUMBER }, defaultValue: { type: Type.STRING } } } },
-                            wageScales: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, rate: { type: Type.NUMBER }, duration: { type: Type.NUMBER }, description: { type: Type.STRING } } } },
-                            rules: { type: Type.OBJECT, properties: { overtimeRate: { type: Type.NUMBER }, leaderPremium: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING } } }, doublingPremium: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING } } }, pensionContribution: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING }, basedOn: { type: Type.ARRAY, items: { type: Type.STRING } } } }, healthContribution: { type: Type.OBJECT, properties: { ratePerMusicianPerService: { type: Type.NUMBER }, description: { type: Type.STRING } } }, workDues: { type: Type.OBJECT, properties: { rate: { type: Type.NUMBER }, description: { type: Type.STRING }, basedOn: { type: Type.ARRAY, items: { type: Type.STRING } } } } } },
-                            summary: { type: Type.ARRAY, items: {} },
-                            legalText: { type: Type.OBJECT, properties: { preamble: { type: Type.STRING }, clause_governingLaw: { type: Type.STRING }, clause_disputes: { type: Type.STRING } } }
-                        }
-                    }
-                }
-            });
-
-            const jsonText = response.text || '{}';
-            const parsedJson = JSON.parse(jsonText);
-            return res.json({ result: parsedJson });
-        } catch (err) {
-            console.error('[POST /admin/scan]', err);
-            return res.status(500).json({ error: err instanceof Error ? err.message : 'AI scan failed' });
+        const result = await scanContractDocument(fileBuffer, fileMimeType);
+        if (!result.success) {
+            return res.status(500).json({ error: result.error });
         }
+        return res.json({ result: result.data });
     });
 
     busboy.on('error', (err) => {

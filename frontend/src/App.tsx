@@ -8,9 +8,10 @@ import LocalSelector from './components/LocalSelector';
 import AdminPanel from './components/AdminPanel';
 import AdminRoute from './components/AdminRoute';
 import AnnouncementBanner from './components/AnnouncementBanner';
+import type { SavedContract } from './types';
 
 
-const MainAppView: React.FC<{ localId: number; onResetLocal: () => void; onLogout: () => void; }> = ({ localId, onResetLocal, onLogout }) => {
+const MainAppView: React.FC<{ localId: number; onResetLocal: () => void; onLogout: () => void; pendingContract?: SavedContract | null; onPendingContractConsumed?: () => void; }> = ({ localId, onResetLocal, onLogout, pendingContract, onPendingContractConsumed }) => {
   const { authState } = useAuth();
   const { config, loading, error } = useConfig(localId);
 
@@ -40,7 +41,7 @@ const MainAppView: React.FC<{ localId: number; onResetLocal: () => void; onLogou
     }
 
     if (config && authState.user) {
-      return <ContractWizard config={config} userId={authState.user.uid} />;
+      return <ContractWizard config={config} userId={authState.user.uid} pendingContract={pendingContract} onPendingContractConsumed={onPendingContractConsumed} />;
     }
 
     return null;
@@ -89,6 +90,7 @@ const AppContent: React.FC = () => {
     return saved ? parseInt(saved, 10) : null;
   });
   const [route, setRoute] = useState(window.location.hash);
+  const [pendingContract, setPendingContract] = useState<SavedContract | null>(null);
 
   // When a user successfully logs in, the AppContent component might not have unmounted
   // (e.g. if using a popup), so we must explicitly re-check localStorage for their saved Local.
@@ -114,6 +116,11 @@ const AppContent: React.FC = () => {
   const handleSelectLocal = (id: number) => {
     localStorage.setItem('afm_selected_local_id', String(id));
     setSelectedLocalId(id);
+  };
+
+  const handleLoadContractFromSelector = (contract: SavedContract, localId: number) => {
+    setPendingContract(contract);
+    handleSelectLocal(localId);
   };
 
   const handleResetLocal = () => {
@@ -182,7 +189,7 @@ const AppContent: React.FC = () => {
     return (
       <main className="min-h-screen flex flex-col text-slate-50 bg-slate-900">
         <AnnouncementBanner />
-        <LocalSelector onSelectLocal={handleSelectLocal} onLogout={handleLogout} />
+        <LocalSelector onSelectLocal={handleSelectLocal} onLogout={handleLogout} onLoadContract={handleLoadContractFromSelector} />
       </main>
     );
   }
@@ -190,7 +197,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-slate-900">
       <AnnouncementBanner />
-      <MainAppView localId={selectedLocalId} onResetLocal={handleResetLocal} onLogout={handleLogout} />
+      <MainAppView localId={selectedLocalId} onResetLocal={handleResetLocal} onLogout={handleLogout} pendingContract={pendingContract} onPendingContractConsumed={() => setPendingContract(null)} />
     </div>
   );
 };
