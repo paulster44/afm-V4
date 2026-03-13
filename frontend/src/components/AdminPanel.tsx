@@ -273,6 +273,28 @@ const AdminPanel: React.FC = () => {
         }
     };
 
+    const handleResetPassword = async (userId: string, email: string) => {
+        setActionLoadingId(userId);
+        try {
+            const res = await fetch('/api/admin/users/reset-password', {
+                method: 'POST',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            if (res.ok) {
+                alert(`Password reset email sent to ${email}`);
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to send password reset email');
+            }
+        } catch (err) {
+            console.error('Reset password error:', err);
+            alert('Error connecting to API.');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
     const handleSuspendToggle = async (userId: string) => {
         setActionLoadingId(userId);
         try {
@@ -521,6 +543,13 @@ const AdminPanel: React.FC = () => {
                                                                 }`}
                                                             >
                                                                 {user.suspendedAt ? 'Unsuspend' : 'Suspend'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleResetPassword(user.id, user.email)}
+                                                                disabled={actionLoadingId === user.id}
+                                                                className="px-3 py-1 text-xs font-semibold rounded-md bg-blue-700 hover:bg-blue-600 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            >
+                                                                Reset PW
                                                             </button>
                                                             <button
                                                                 onClick={() => setConfirmDeleteUserId(user.id)}

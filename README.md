@@ -56,7 +56,6 @@ Browser                          Firebase Hosting (CDN)
   |  React SPA (Vite build)              |
   |  - Firebase Auth (client SDK)        |
   |  - jsPDF (client-side PDF)           |
-  |  - Gemini AI (admin scanner)         |
   |                                      |
   |  /api/* requests ──────────────────> Firebase Cloud Functions (2nd Gen)
                                          |
@@ -65,6 +64,7 @@ Browser                          Firebase Hosting (CDN)
                                     - Prisma ORM
                                     - Zod validation
                                     - Resend (email)
+                                    - Google Gemini AI (contract scanning)
                                          |
                                     Google Cloud SQL
                                     (PostgreSQL 17)
@@ -87,7 +87,7 @@ The frontend is a React 18 SPA served from Firebase Hosting's global CDN. All `/
 | Firebase JS SDK | 12.x | Client-side authentication (Google OAuth, email/password) |
 | jsPDF | 2.5 | Client-side PDF generation |
 | jspdf-autotable | 3.8 | Table rendering plugin for jsPDF |
-| @google/genai | 1.23 | Gemini AI SDK (admin contract scanner) |
+| html2canvas | 1.4 | HTML-to-canvas rendering (PDF support) |
 
 ### Backend
 
@@ -99,8 +99,10 @@ The frontend is a React 18 SPA served from Firebase Hosting's global CDN. All `/
 | Firebase Admin SDK | 13.7 | Token verification, user management (disable/delete) |
 | Firebase Functions | 7.0 | Cloud Function runtime (2nd Gen, scales to zero) |
 | Zod | 3.23 | Request body validation schemas |
+| @google/genai | 1.23 | Gemini AI SDK (contract scanner + batch ingestion) |
 | Resend | 6.9 | Transactional email delivery |
-| Busboy | 1.6 | Multipart form data parsing (PDF email attachments) |
+| adm-zip | 0.5 | ZIP file extraction (batch upload) |
+| Busboy | 1.6 | Multipart form data parsing (PDF email attachments, file uploads) |
 | Helmet | 7.1 | HTTP security headers |
 | express-rate-limit | 7.2 | Rate limiting (100 requests / 15 minutes) |
 
@@ -127,10 +129,14 @@ afm-v4/
 │   │   ├── types.ts                   # All TypeScript type definitions (see Type System section)
 │   │   │
 │   │   ├── components/
-│   │   │   ├── ContractWizard.tsx     # Main contract builder — orchestrates hooks, renders form
+│   │   │   ├── ContractWizard.tsx     # Main contract builder — orchestrates hooks, step-based wizard
+│   │   │   ├── WizardProgress.tsx     # Step progress bar with clickable dots and labels
+│   │   │   ├── WizardStepView.tsx     # Renders a single wizard step (form fields or personnel)
+│   │   │   ├── WizardReviewStep.tsx   # Final review step with summary, actions, email history
+│   │   │   ├── BatchIngestion.tsx     # Batch contract type ingestion (ZIP upload or Google Drive)
 │   │   │   ├── LoginPage.tsx          # Google OAuth + email/password sign-in with verification
 │   │   │   ├── LocalSelector.tsx      # Local union dropdown (fetches from /api/locals)
-│   │   │   ├── AdminPanel.tsx         # Multi-tab admin: scanner, usage, users, announcements, configs
+│   │   │   ├── AdminPanel.tsx         # Multi-tab admin: scanner, batch, notes, usage, users, configs
 │   │   │   ├── AdminRoute.tsx         # Auth guard wrapper (admin/god only)
 │   │   │   ├── LocalConfigEditor.tsx  # CRUD editor for LocalConfig records (admin)
 │   │   │   ├── UsageDashboard.tsx     # Per-user usage statistics dashboard (admin)
@@ -147,7 +153,8 @@ afm-v4/
 │   │   │   ├── useContractForm.ts     # Form state, validation, keyboard navigation
 │   │   │   ├── usePersonnelRoster.ts  # Musician roster: add/remove/update, leader roles, SSNs
 │   │   │   ├── useDraftPersistence.ts # Auto-save to localStorage (500ms debounce), restore on revisit
-│   │   │   └── useVersionManagement.ts# Contract version snapshots, save/load/delete
+│   │   │   ├── useVersionManagement.ts# Contract version snapshots, save/load/delete
+│   │   │   └── useWizardNavigation.ts # Step-based wizard navigation with conditional steps
 │   │   │
 │   │   ├── contexts/
 │   │   │   └── AuthContext.tsx         # Firebase auth state, auto-provisioning, suspension detection
@@ -172,8 +179,9 @@ afm-v4/
 │   │   │   ├── auth.ts                # GET /api/auth/me — auto-provision user + workspace
 │   │   │   ├── contracts.ts           # CRUD for contracts + version snapshots
 │   │   │   ├── locals.ts              # CRUD for LocalConfig (public read, admin write)
-│   │   │   ├── admin.ts               # User management, announcements, usage stats
-│   │   │   ├── email.ts               # POST /api/email — send PDF via Resend
+│   │   │   ├── admin.ts               # User management, announcements, usage stats, notes, scan
+│   │   │   ├── batch.ts               # Batch contract ingestion (ZIP upload, Google Drive, review)
+│   │   │   ├── email.ts               # POST /api/email — send PDF via Resend + email logging
 │   │   │   ├── announcements.ts       # GET /api/announcements/latest
 │   │   │   ├── workspaces.ts          # Workspace management (multi-tenant scaffolding)
 │   │   │   └── items.ts               # Workspace items (multi-tenant scaffolding)
@@ -185,11 +193,13 @@ afm-v4/
 │   │   ├── schemas/
 │   │   │   ├── contracts.ts           # Zod schemas for contract/version request bodies
 │   │   │   ├── admin.ts               # Zod schemas for role update, announcement creation
+│   │   │   ├── batch.ts               # Zod schemas for batch ingestion endpoints
 │   │   │   └── locals.ts              # Zod schemas for LocalConfig create/update
 │   │   │
 │   │   └── utils/
 │   │       ├── prisma.ts              # Singleton PrismaClient instance
-│   │       └── firebase.ts            # Firebase Admin SDK initialization
+│   │       ├── firebase.ts            # Firebase Admin SDK initialization
+│   │       └── gemini.ts              # Gemini AI document scanner (structured JSON extraction)
 │   │
 │   ├── prisma/
 │   │   ├── schema.prisma              # Database schema definition
@@ -218,15 +228,23 @@ Hash-based routing without React Router. The `AppContent` component in `App.tsx`
 
 ### ContractWizard — The Core Component
 
-`ContractWizard.tsx` is the main contract building interface. It orchestrates five custom hooks:
+`ContractWizard.tsx` is the main contract building interface, presented as a **step-based wizard**. Form field groups from the contract config become individual steps, with a final review step for summary, export, and email actions. It orchestrates six custom hooks:
 
 | Hook | Responsibility |
 |---|---|
-| `useContractForm` | Form field state (`formData`), validation errors, accordion navigation, field grouping, keyboard shortcuts (Enter advances sections) |
+| `useContractForm` | Form field state (`formData`), validation errors, field grouping, keyboard shortcuts |
 | `usePersonnelRoster` | Musician list (`personnel[]`), SSN tracking (client-only, never sent to server), leader/sideperson roles, duplicate detection |
 | `useDraftPersistence` | Auto-saves form + personnel to `localStorage` every 500ms (debounced). Keyed by `{localId}_{userId}_{contractTypeId}`. Restores drafts on revisit or contract type switch |
 | `useVersionManagement` | Named version snapshots. Save/load/delete versions via the contracts API. Tracks `activeVersionIndex` for PDF export |
 | `useContractStorage` | REST API CRUD wrapper. `saveContract()`, `updateContract()`, `loadContract()`, `deleteContract()` |
+| `useWizardNavigation` | Step index tracking, conditional step visibility (via `stepMeta` conditions), next/back/goto navigation |
+
+**Wizard UI components:**
+- `WizardProgress` — Clickable step dots with labels, shows current step and completion state
+- `WizardStepView` — Renders a single step's form fields or the personnel roster
+- `WizardReviewStep` — Final review: read-only summary of all data, calculation results, action buttons (save, PDF, email), version management, and email send history
+
+**Conditional steps:** Contract configs can define `stepMeta` with conditions (e.g., show the "Overtime" step only when `engagementDuration > 3`). The `useWizardNavigation` hook evaluates these conditions against the current form data and filters the visible step list dynamically.
 
 **State coordination pattern:** The `activeVersionId` state lives in `ContractWizard` (not in any hook) and acts as a "dirty flag." When form data or personnel changes, hooks call an `onDirty` callback that sets `activeVersionId` to null, indicating the current form has diverged from the last saved snapshot. The `resetForm` function is also kept in `ContractWizard` as an orchestrator that calls each hook's individual reset.
 
@@ -301,17 +319,30 @@ All routes require authentication. Ownership is verified on write operations.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/users` | GOD | List all users with contract counts and suspension status |
-| `PUT` | `/users/:id/role` | GOD | Change user role (USER/ADMIN/GOD) |
+| `PUT` | `/users/:id/role` | GOD | Change user role (USER/ADMIN/SUPERADMIN/GOD) |
 | `DELETE` | `/users/:id` | GOD | Permanently delete user from Prisma + Firebase Auth. Cleans up orphaned workspaces. Self-delete protected |
 | `PUT` | `/users/:id/suspend` | GOD | Toggle suspend/unsuspend. Syncs `disabled` flag to Firebase Auth. Self-suspend protected |
 | `POST` | `/announcements` | Admin | Create global announcement (deactivates all previous) |
+| `DELETE` | `/announcements` | Admin | Deactivate the current active announcement |
 | `GET` | `/usage` | Admin | Aggregate usage stats: lifetime totals, today's activity, per-user breakdown |
+| `POST` | `/scan` | SuperAdmin | Upload a contract image for Gemini AI extraction (returns structured JSON) |
+| `GET` | `/notes` | SuperAdmin | List top-level admin notes with replies (pinned first, then by date) |
+| `POST` | `/notes` | SuperAdmin | Create a new admin note or reply to an existing one |
+| `PUT` | `/notes/:id/pin` | GOD | Toggle pin status on a note |
+| `DELETE` | `/notes/:id` | GOD | Delete an admin note (cascades to replies) |
+| `POST` | `/batch-upload` | SuperAdmin | Upload a ZIP of contract documents for batch Gemini processing |
+| `POST` | `/batch-drive` | SuperAdmin | Import files from a public Google Drive folder for batch processing |
+| `GET` | `/batch-pending` | SuperAdmin | List pending contract type items (filterable by localId, status, batchId) |
+| `PUT` | `/batch-pending/:id` | SuperAdmin | Edit the parsed JSON of a pending item |
+| `POST` | `/batch-pending/:id/approve` | SuperAdmin | Approve and merge a pending contract type into the local's config |
+| `POST` | `/batch-pending/:id/reject` | SuperAdmin | Mark a pending item as rejected |
+| `DELETE` | `/batch-pending/:id` | SuperAdmin | Permanently delete a pending item |
 
 #### Email — `/api/email`
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/` | Required | Accepts `multipart/form-data` with `to`, `subject`, `message` fields and a `pdf` file attachment. Sends via Resend API |
+| `POST` | `/` | Required | Accepts `multipart/form-data` with `to`, `subject`, `message`, `contractId`, `referenceNumber` fields and a `pdf` file attachment. Sends via Resend API and logs to `EmailLog` table if tied to a saved contract |
 
 #### Announcements — `/api/announcements`
 
@@ -323,7 +354,9 @@ All routes require authentication. Ownership is verified on write operations.
 
 **`requireAuth`**: Extracts Bearer token from `Authorization` header (or falls back to `req.cookies.token`). Verifies via Firebase Admin SDK's `verifyIdToken()`. Looks up the user in PostgreSQL by email. Checks `suspendedAt` — returns 403 with suspension timestamp if set. Attaches `req.user` with `{ id, email, role }`.
 
-**`requireAdmin`**: Passes if `role` is `ADMIN` or `GOD`. Returns 403 otherwise.
+**`requireAdmin`**: Passes if `role` is `ADMIN`, `SUPERADMIN`, or `GOD`. Returns 403 otherwise.
+
+**`requireSuperAdmin`**: Passes if `role` is `SUPERADMIN` or `GOD`. Returns 403 otherwise.
 
 **`requireGod`**: Passes only if `role` is exactly `GOD`. Returns 403 otherwise.
 
@@ -341,7 +374,7 @@ id           String    @id (UUID — set to Firebase UID on creation)
 email        String    @unique
 name         String?
 passwordHash String?
-role         String    @default("USER")   — "USER" | "ADMIN" | "GOD"
+role         String    @default("USER")   — "USER" | "ADMIN" | "SUPERADMIN" | "GOD"
 suspendedAt  DateTime?                    — null = active, non-null = suspended since
 createdAt    DateTime
 updatedAt    DateTime
@@ -401,6 +434,44 @@ name   String         — display name (e.g., "Local 47 – Los Angeles")
 config Json           — the full JSON config object (see Configuration System)
 ```
 
+**EmailLog**
+```
+id              String
+contractId      String    — FK to Contract
+recipientEmail  String
+referenceNumber String    — the PDF reference number sent
+subject         String
+sentAt          DateTime
+```
+Cascades on Contract delete. Tracks every email sent for a contract, displayed in the review step.
+
+**AdminNote**
+```
+id              String
+content         String
+category        String    @default("General")
+isPinned        Boolean   @default(false)
+parentId        String?   — self-referential FK for threaded replies
+createdByUserId String
+createdByEmail  String
+createdAt       DateTime
+```
+Self-referential relation: top-level notes have `parentId = null`, replies point to a parent note. Cascade on parent delete removes all replies. Indexed on `createdAt` and `parentId`.
+
+**PendingContractType**
+```
+id              String
+localId         Int       — target local for the contract type
+sourceFileName  String    — original document filename
+status          String    — "pending" | "approved" | "rejected" | "error"
+parsedData      Json      — Gemini-extracted ContractType JSON
+error           String?   — error message if parsing failed
+createdByUserId String
+batchId         String    — groups files from a single upload
+createdAt       DateTime
+```
+Indexed on `[localId, status]` and `[batchId]`. Represents AI-extracted contract types awaiting admin review.
+
 **Other models:** `OAuthAccount` (provider auth links), `Invite` (workspace invitations with token + expiry), `Item` (workspace items — multi-tenant scaffolding).
 
 ### Cascade Map (User Deletion)
@@ -408,7 +479,7 @@ config Json           — the full JSON config object (see Configuration System)
 When a user is deleted, the following cascades automatically via Prisma:
 - All `OAuthAccount` records
 - All `Membership` records
-- All `Contract` records (which cascade their `ContractVersion` records)
+- All `Contract` records (which cascade their `ContractVersion` and `EmailLog` records)
 - All `Announcement` records they created
 
 `Workspace` records where the user is `ownerUserId` are cleaned up manually in the delete endpoint (no FK relation exists).
@@ -480,34 +551,42 @@ Configs are managed at runtime through the Admin Panel's LocalConfig Editor — 
 ### Three Calculation Models
 
 **`live_engagement`** — Standard live performance contracts
-1. Base scale wages (from selected wage scale rate x number of musicians)
-2. Leader premium (percentage of base scale)
+1. Base scale wages (from selected wage scale rate x number of musicians, or manual entry)
+2. Leader premium (percentage of base scale, per leader)
 3. Doubling premium (percentage of base scale, per doubling musician)
-4. Cartage fees (from cartage scale lookup)
+4. Cartage fees (from cartage scale lookup, per musician with cartage)
 5. Rehearsal wages (rehearsal rate x hours x rehearsing musicians)
-6. Overtime (overtime rate x overtime hours x musicians)
-7. Subtotal wages
-8. Pension contribution (percentage of pensionable wages — configurable base components)
-9. Health contribution (flat rate per musician per service)
-10. Work dues (percentage of specified wage components)
-11. Total engagement cost
+6. Overtime — **auto-calculated** when engagement duration exceeds the wage scale's included hours, plus any manual overtime hours
+7. Additional fees (per category, from `additionalFees[]` config — per-musician or flat)
+8. Subtotal gross wages
+9. Pension contribution (percentage of pensionable wages)
+10. Health contribution (flat rate per musician per service)
+11. Work dues (percentage of specified wage components)
+12. Total engagement cost
 
 **`media_report`** — Recording/media contracts
 1. Base scale wages (scale rate x number of musicians x number of services)
-2. Leader premium
-3. Doubling premium
-4. Overtime
-5. Pension contribution
-6. Health contribution
-7. Work dues
-8. Total cost
+2. Overtime
+3. Additional fees
+4. Pension contribution
+5. Health contribution
+6. Work dues
+7. Total cost
 
 **`contribution_only`** — Simplified pension/health-only contracts
-1. Total scale wages (entered directly)
-2. Pension contribution
-3. Health contribution
-4. Work dues
+1. Total pensionable wages (entered directly)
+2. Pension contribution (user-specified percentage)
+3. Health contribution (entered directly)
+4. Additional fees
 5. Total contributions
+
+### Deposits & Balance Due
+
+Currency fields marked with `subtracts: true` (or whose `id` contains "deposit") are treated as deductions. They appear after the Total Engagement Cost as negative line items, followed by a **Balance Due** line showing the net amount.
+
+### Additional Fees
+
+Contract types can define an `additionalFees[]` array with fee categories. Each fee has a rate and a `perMusician` flag. The calculation engine groups fees by category and shows category subtotals in the results.
 
 All monetary values are formatted via `formatCurrency(value, currencyCode, symbol)` which handles negative values and configurable currency symbols.
 
@@ -525,7 +604,7 @@ All monetary values are formatted via `formatCurrency(value, currencyCode, symbo
 4. **Calculation Summary** — Financial breakdown table (green header, grid lines)
 5. **Legal Text** — Preamble in italics, then sequentially numbered clauses. Conditional rendering: if `formData.disputeResolution` is set, only the matching clause (arbitration vs. court action) is included
 6. **Signature Lines** — "Signature of Purchaser" and "Signature of Musician/Leader" with date lines
-7. **Footer** — Every page: reference number (`YYYYMMDD-{6-char-timestamp}`) + "Page X of Y"
+7. **Footer** — Every page: reference number (`YYYYMMDD-{5-digit-random}`) + "Page X of Y"
 
 **Output:** Returns `{ blob: Blob, fileName: string }` where fileName is `{formIdentifier}_{purchaserName}.pdf` (lowercased, special characters replaced with underscores).
 
@@ -552,8 +631,23 @@ From address: `AFM Smart Contracts <{EMAIL_SENDER}>` (configurable via environme
 
 The admin panel (`/#admin`) is a multi-tab interface with role-gated sections:
 
-### Contract Scanner (Admin+)
-Upload a photo of a physical union contract document. **Google Gemini 2.5 Flash** analyzes the image and extracts all fields, wage scales, rules, and legal text into a structured `ContractType` JSON object using a strict response schema. The output can be copied and pasted into the LocalConfig Editor.
+### Contract Scanner (SuperAdmin+)
+Upload a photo of a physical union contract document. **Google Gemini 2.5 Flash** analyzes the image server-side and extracts all fields, wage scales, rules, and legal text into a structured `ContractType` JSON object using a strict response schema. The output can be copied and pasted into the LocalConfig Editor.
+
+### Batch Ingestion (SuperAdmin+)
+Bulk-import contract types from physical documents. Two ingestion modes:
+
+- **ZIP Upload** — Upload a ZIP file (up to 50MB, max 15 files) containing contract documents (PDF, PNG, JPG, DOC, DOCX). Each file is processed through Gemini AI server-side and stored as a `PendingContractType` record.
+- **Google Drive** — Provide a public Google Drive folder URL. The backend lists and downloads supported files from the folder, processing each through Gemini AI.
+
+After upload, a review panel shows all pending items with status badges (pending/approved/rejected/error). Admins can:
+- **Edit** the AI-extracted JSON before approval
+- **Approve** to merge the contract type into the target local's config
+- **Reject** or **Delete** unwanted results
+- Filter by status
+
+### Admin Notes (SuperAdmin+)
+Threaded note-taking system for admin communication. Top-level notes with categories, replies, and pin functionality. GOD users can pin and delete notes; SUPERADMIN+ can create notes and replies.
 
 ### Usage Dashboard (Admin+)
 Real-time usage statistics fetched from the database:
@@ -561,14 +655,14 @@ Real-time usage statistics fetched from the database:
 - Per-user breakdown: email, contract count, version count, last active date
 
 ### Announcements (Admin+)
-Publish a global announcement that appears as a dismissible banner at the top of the app for all users. Publishing a new announcement automatically deactivates the previous one.
+Publish a global announcement that appears as a dismissible banner at the top of the app for all users. Publishing a new announcement automatically deactivates the previous one. Can also deactivate the current announcement.
 
 ### Local Configs (GOD only)
 Form-based CRUD editor for `LocalConfig` records. Create/edit/delete entire local union configurations (including all their contract types, wage scales, and rules) directly from the browser.
 
 ### Users & Roles (GOD only)
 Full user management table with:
-- **Role dropdown** — change any user's role between USER, ADMIN, and GOD
+- **Role dropdown** — change any user's role between USER, ADMIN, SUPERADMIN, and GOD
 - **Suspend button** — toggle account suspension (yellow = suspend, green = unsuspend). Syncs to Firebase Auth to prevent new logins. Suspended users see a dedicated notice screen
 - **Delete button** — permanently remove a user with a confirmation dialog. Deletes all their data (contracts, versions, memberships, workspaces) and removes their Firebase Auth account
 - **Suspended badge** — yellow badge next to suspended user emails
@@ -578,15 +672,16 @@ Full user management table with:
 
 ## Role System
 
-Three-tier role hierarchy:
+Four-tier role hierarchy:
 
 | Role | Permissions |
 |---|---|
 | `USER` | Create/edit/save/export own contracts |
-| `ADMIN` | Everything USER can do + AI Scanner, Usage Dashboard, Announcements, LocalConfig editing |
-| `GOD` | Everything ADMIN can do + User management (role changes, suspend, delete), Local Configs tab |
+| `ADMIN` | Everything USER can do + Usage Dashboard, Announcements |
+| `SUPERADMIN` | Everything ADMIN can do + AI Scanner, Batch Ingestion, Admin Notes |
+| `GOD` | Everything SUPERADMIN can do + User management (role changes, suspend, delete), Local Configs tab |
 
-GOD role is initially hardcoded for `paulpivetta@gmail.com` in the auto-provisioning endpoint. Additional GOD users can only be assigned by an existing GOD user.
+GOD role is initially hardcoded for `paulpivetta@gmail.com` in the auto-provisioning endpoint. Additional GOD/SUPERADMIN users can only be assigned by an existing GOD user.
 
 Admins cannot view other users' private contracts — the role system enforces separation of power.
 
@@ -645,16 +740,20 @@ Suspended accounts are blocked at two levels:
 
 All TypeScript types are defined in a single canonical file:
 
-- `User` — auth state (uid, email, role, isAdmin, isGod)
+- `User` — auth state (uid, email, role, isAdmin, isSuperAdmin, isGod)
 - `Config` — top-level local config (localId, localName, currency, contractTypes)
-- `ContractType` — contract template definition
-- `Field` — form field definition (type, label, validation, options, group)
+- `ContractType` — contract template definition (with optional `stepMeta`, `additionalFees`)
+- `Field` — form field definition (type, label, validation, options, group, `subtracts` flag)
 - `Rules` — financial rules (overtime, premiums, pension, health, work dues)
 - `WageScale` — wage scale definition (id, name, rate, duration)
-- `Person` — musician in the roster (name, address, role, doubling, cartage)
+- `AdditionalFee` — fee definition (id, name, rate, category, perMusician)
+- `StepMeta` — conditional step visibility rules (field, operator, value)
+- `Currency` — currency symbol and code
+- `Person` — musician in the roster (name, address, role, doubling, cartage, presentForRehearsal)
 - `FormData` — `Record<string, string | number>` key-value form state
 - `CalculationResult` — `{ id, label, value }` financial line item
 - `ContractVersion` — named snapshot with formData + personnel
+- `PendingContractType` — batch-ingested contract type awaiting review
 - `SavedContract` — persisted contract with versions array
 
 ### Backend Validation (Zod Schemas)
@@ -662,12 +761,13 @@ All TypeScript types are defined in a single canonical file:
 All route handlers that accept request bodies use Zod schemas for runtime validation, following the pattern established in `workspaces.ts`:
 
 - `functions/src/schemas/contracts.ts` — `createContractSchema`, `updateContractSchema`, `createVersionSchema`
-- `functions/src/schemas/admin.ts` — `updateRoleSchema` (enum: USER/ADMIN/GOD), `createAnnouncementSchema`
+- `functions/src/schemas/admin.ts` — `updateRoleSchema` (enum: USER/ADMIN/SUPERADMIN/GOD), `createAnnouncementSchema`
+- `functions/src/schemas/batch.ts` — `batchPendingQuerySchema`, `updateParsedDataSchema`, `batchDriveSchema`
 - `functions/src/schemas/locals.ts` — `createLocalSchema`, `updateLocalSchema`
 
 Invalid requests receive a 400 response with Zod error details. JSON blob fields (formData, personnel, config) use `Prisma.InputJsonValue` transforms for type compatibility.
 
-The `AuthRequest` interface in `auth.ts` uses a `UserRole` union type (`'USER' | 'ADMIN' | 'GOD'`) instead of a plain string.
+The `AuthRequest` interface in `auth.ts` uses a `UserRole` union type (`'USER' | 'ADMIN' | 'SUPERADMIN' | 'GOD'`) instead of a plain string.
 
 ---
 
@@ -695,7 +795,8 @@ All must be prefixed with `VITE_` for Vite to expose them to the client bundle.
 | `EMAIL_SENDER` | No | From address (default: `contracts@fakturflow.phonikamedia.com`) |
 | `PORT` | No | HTTP port for standalone mode (default: `8080`) |
 | `NODE_ENV` | No | Set to `production` to trigger auto-migration on startup |
-| `API_KEY` | No | Gemini AI API key (used by admin scanner) |
+| `GEMINI_API_KEY` | No | Google Gemini API key (contract scanner + batch ingestion) |
+| `GOOGLE_DRIVE_API_KEY` | No | Google API key with Drive read scope (batch Drive ingestion) |
 
 Firebase Admin SDK authenticates automatically via Application Default Credentials in Cloud Functions — no service account key needed in production.
 
@@ -778,24 +879,68 @@ firebase deploy
 
 ---
 
-## Recent Refactoring
+## Changelog
 
-The following improvements were made on the `claude/cleanup-dead-code` branch:
+### March 2026 — Wizard UX, Batch Ingestion, Deposits, Email Logging
 
-### 1. Dead Code Removal
+**Step-Based Wizard**
+- Replaced the single-page accordion contract form with a step-by-step wizard
+- New components: `WizardProgress`, `WizardStepView`, `WizardReviewStep`
+- New hook: `useWizardNavigation` with conditional step visibility via `stepMeta`
+- Review step shows read-only summary, calculation results, all actions, and email history
+
+**Batch Contract Ingestion**
+- New admin tab for bulk-importing contract types from document scans
+- ZIP upload (up to 15 files, 50MB) or Google Drive folder URL
+- Server-side Gemini AI processing with review/approve/reject workflow
+- New Prisma model: `PendingContractType`
+- New backend routes: `batch.ts` with full CRUD for pending items
+
+**Deposit & Balance Due**
+- Currency fields with `subtracts: true` or IDs containing "deposit" are treated as deductions
+- Deductions display as negative values after Total Engagement Cost
+- New "Balance Due" line shows net amount
+
+**Additional Fees System**
+- Contract types can define `additionalFees[]` with categories and per-musician flags
+- Fees are grouped by category in calculation results
+
+**Email Logging**
+- Email sends are logged to `EmailLog` table with recipient, reference number, and subject
+- Review step displays email send history for the current contract
+
+**Admin Notes**
+- Threaded note-taking system for admin communication
+- Categories, replies, and pin functionality
+- New Prisma model: `AdminNote` with self-referential replies
+
+**SUPERADMIN Role**
+- New role tier between ADMIN and GOD
+- Controls access to AI Scanner, Batch Ingestion, and Admin Notes
+- New middleware: `requireSuperAdmin`
+
+**Gemini AI moved server-side**
+- `@google/genai` moved from frontend to backend dependency
+- Scanner and batch ingestion both proxy through Express (keeps API key off the client)
+
+**PDF Reference Number**
+- Changed from timestamp-based to `YYYYMMDD-{5-digit-random}` format using creation date
+
+### Earlier — Dead Code Removal, Decomposition, Type Safety
+
+**Dead Code Removal**
 Deleted 68 files: a ghost root-level frontend app (duplicate `src/`, `App.tsx`, `index.html`, `components/`, `hooks/`, etc.), deprecated infrastructure files (`Dockerfile`, `cloudbuild.yaml`, `docker-compose.yml`, `nginx.conf`), and unused Firebase Data Connect boilerplate (`dataconnect/` directory with a movie review example schema).
 
-### 2. ContractWizard Decomposition
-Broke an 819-line monolithic component into 5 focused files:
-- `utils/calculations.ts` — pure calculation engine (162 lines)
-- `hooks/usePersonnelRoster.ts` — personnel state management (101 lines)
-- `hooks/useContractForm.ts` — form state and validation (143 lines)
-- `hooks/useDraftPersistence.ts` — localStorage auto-save (116 lines)
-- `hooks/useVersionManagement.ts` — version snapshots (132 lines)
-- `ContractWizard.tsx` reduced to 390 lines (hook wiring + JSX)
+**ContractWizard Decomposition**
+Broke an 819-line monolithic component into focused files:
+- `utils/calculations.ts` — pure calculation engine
+- `hooks/usePersonnelRoster.ts` — personnel state management
+- `hooks/useContractForm.ts` — form state and validation
+- `hooks/useDraftPersistence.ts` — localStorage auto-save
+- `hooks/useVersionManagement.ts` — version snapshots
 
-### 3. Backend Type Safety
-Added Zod validation schemas to all backend routes that accept request bodies. Eliminated every `any` type from the codebase. Tightened `AuthRequest.role` from `string` to `'USER' | 'ADMIN' | 'GOD'` union. Fixed a bug in `locals.ts` where a new `PrismaClient()` was instantiated per-request instead of using the shared singleton.
+**Backend Type Safety**
+Added Zod validation schemas to all backend routes. Eliminated every `any` type. Tightened `AuthRequest.role` to a union type. Fixed a bug in `locals.ts` where a new `PrismaClient()` was instantiated per-request.
 
-### 4. User Management
-Added delete and suspend functionality to the admin panel. Delete permanently removes a user from both PostgreSQL (cascade) and Firebase Auth. Suspend toggles a `suspendedAt` timestamp and disables the Firebase account. The `requireAuth` middleware checks suspension status on every request, and suspended users see a dedicated notice screen with the suspension date.
+**User Management**
+Added delete and suspend functionality to the admin panel. Delete permanently removes a user from both PostgreSQL (cascade) and Firebase Auth. Suspend toggles a `suspendedAt` timestamp and disables the Firebase account.

@@ -5,7 +5,8 @@ import { prisma } from '../utils/prisma';
 import { auth } from '../utils/firebase';
 import { scanContractDocument } from '../utils/gemini';
 import { requireAuth, requireAdmin, requireSuperAdmin, requireGod, AuthRequest } from '../middleware/auth';
-import { updateRoleSchema, createAnnouncementSchema } from '../schemas/admin';
+import { Resend } from 'resend';
+import { updateRoleSchema, createAnnouncementSchema, resetPasswordSchema } from '../schemas/admin';
 
 const router = Router();
 
@@ -129,6 +130,42 @@ router.put('/users/:id/suspend', requireGod, async (req: AuthRequest, res: Respo
     } catch (error) {
         console.error('[PUT /admin/users/:id/suspend]', error);
         res.status(500).json({ error: 'Failed to update suspension status' });
+    }
+});
+
+// POST /api/admin/users/reset-password
+// Send a password reset email to any user (GOD ONLY)
+router.post('/users/reset-password', requireGod, async (req: AuthRequest, res: Response) => {
+    try {
+        const { email } = resetPasswordSchema.parse(req.body);
+
+        const resetLink = await auth.generatePasswordResetLink(email);
+
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const fromAddress = process.env.EMAIL_SENDER || 'contracts@fakturflow.phonikamedia.com';
+        const { error: emailError } = await resend.emails.send({
+            from: `AFM Smart Contracts <${fromAddress}>`,
+            to: [email],
+            subject: 'Reset Your Password - AFM Smart Contracts',
+            html: `
+                <p>A password reset was requested for your account by an administrator.</p>
+                <p><a href="${resetLink}" style="display:inline-block;padding:12px 24px;background-color:#4f46e5;color:white;text-decoration:none;border-radius:6px;">Reset Password</a></p>
+                <p>If you didn't expect this, you can safely ignore this email.</p>
+            `,
+        });
+
+        if (emailError) {
+            console.error('[POST /admin/users/reset-password] Resend error:', emailError);
+            return res.status(500).json({ error: 'Failed to send reset email' });
+        }
+
+        res.json({ message: 'Password reset email sent' });
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return res.status(400).json({ error: 'Valid email is required' });
+        }
+        console.error('[POST /admin/users/reset-password]', error);
+        res.status(500).json({ error: 'Failed to send password reset' });
     }
 });
 
