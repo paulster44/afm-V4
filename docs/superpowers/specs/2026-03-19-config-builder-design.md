@@ -195,13 +195,14 @@ type ContractType = {
 
 ### Flow
 
-1. CLI prompts: "Which local?" — enter ID + name, or select existing from database
-2. CLI prompts: "Path to wage agreement PDF(s)" — accepts one or more file paths
-3. Reads PDF files, sends to Gemini with upgraded extraction prompt
-4. Gemini returns extracted config (new Rules schema, wage scales, contract types, extraction notes)
-5. Script validates output at runtime using Zod schemas (see section 3a)
-6. Script writes results as `PendingContractType` records to the database (one per extracted contract type)
-7. Script prints summary: what was extracted, any extraction notes, and "Review and approve in the admin panel"
+1. CLI prompts: "Admin email?" — looks up the user ID to populate `createdByUserId` on `PendingContractType` records (required by schema)
+2. CLI prompts: "Which local?" — enter ID + name, or select existing from database
+3. CLI prompts: "Path to wage agreement PDF(s)" — accepts one or more file paths
+4. Reads PDF files, sends to Gemini with upgraded extraction prompt
+5. Gemini returns extracted config (new Rules schema, wage scales, contract types, extraction notes)
+6. Script validates output at runtime using Zod schemas (see section 3a)
+7. Script writes results as `PendingContractType` records to the database (one per extracted contract type)
+8. Script prints summary: what was extracted, any extraction notes, and "Review and approve in the admin panel"
 
 ### What the script does NOT do
 
@@ -216,7 +217,7 @@ type ContractType = {
 - Shared TypeScript types
 - `fs` for reading local PDF files
 - `readline` or `inquirer` for CLI prompts
-- `tsx` for running TypeScript directly (add to devDependencies if not present)
+- `ts-node` for running TypeScript directly (already a devDependency, used by seed script)
 
 ### 3a. Runtime Validation (Zod Schemas)
 
