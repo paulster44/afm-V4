@@ -39,8 +39,15 @@ type Tier = {
   label?: string;            // e.g., "Small ensemble (2-30)"
 };
 
+type ConditionField =
+  | "contractTypeId"    // which contract type is active
+  | "ensembleSize"      // alias for numberOfMusicians
+  | "numberOfMusicians" // personnel count
+  | "engagementType"    // selected wage scale / engagement type
+  | string;             // extensible for future conditions
+
 type Condition = {
-  field: string;             // e.g., "contractTypeId", "ensembleSize"
+  field: ConditionField;
   operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "in";
   value: string | number | string[];
 };
@@ -79,6 +86,10 @@ type ConditionalRule = {
   conditions: Condition[];
   rule: PercentageRule | TieredRule | FlatRule;
   fallback?: PercentageRule | TieredRule | FlatRule;
+  // Note: pensionability is derived from the active branch at evaluation time.
+  // If condition branch has pensionable: true but fallback has pensionable: false,
+  // the engine evaluates the condition first, then reads pensionable from the
+  // matched branch.
 };
 
 type SurchargeRule = {
@@ -104,7 +115,7 @@ type Rules = {
   doubling?: TieredRule | PercentageRule;
   billing?: {
     increment: number;        // minutes (e.g., 15)
-    minimum: number;          // hours (e.g., 2)
+    minimum: number;          // minutes (e.g., 120 for 2 hours)
   };
   surcharges?: SurchargeRule[];
   rehearsal?: {
@@ -120,9 +131,8 @@ type ExtensionRule = {
   id: string;
   label: string;
   description: string;
-  pensionable: boolean;
-  basis?: string[];
-} & (PercentageRule | TieredRule | FlatRule | ConditionalRule);
+  rule: PercentageRule | TieredRule | FlatRule | ConditionalRule;
+};
 ```
 
 ### Pensionable vs. Non-Pensionable
@@ -151,20 +161,24 @@ Examples:
 
 ```typescript
 type ContractType = {
-  // Existing (unchanged)
+  // Existing — optionality preserved to match current types.ts
   id: string;
   name: string;
   formIdentifier: string;
-  calculationModel: "live_engagement" | "media_report" | "contribution_only";
-  signatureType: "engagement" | "media_report" | "member" | "petitioner";
+  calculationModel?: "live_engagement" | "media_report" | "contribution_only";
+  signatureType?: "engagement" | "media_report" | "member" | "petitioner";
   jurisdiction?: string;
   currency?: Currency;
   fields: Field[];
   wageScales?: WageScale[];
-  rules: Rules;                          // now uses new Rules type
-  legalText?: Record<string, string>;
+  rules?: Rules;                         // now uses new Rules type (stays optional)
+  legalText?: {
+    preamble?: string;
+    [key: string]: string | undefined;
+  };
   additionalFees?: AdditionalFee[];
-  summary?: SummaryItem[];
+  summary: SummaryItem[];
+  stepMeta?: Record<string, StepMeta>;   // wizard step descriptions & conditional visibility
 
   // New
   pdfTemplateFields?: Record<string, string>;  // app field → AcroForm field name (populated later)
@@ -185,7 +199,7 @@ type ContractType = {
 2. CLI prompts: "Path to wage agreement PDF(s)" — accepts one or more file paths
 3. Reads PDF files, sends to Gemini with upgraded extraction prompt
 4. Gemini returns extracted config (new Rules schema, wage scales, contract types, extraction notes)
-5. Script validates output against TypeScript types
+5. Script validates output at runtime using Zod schemas (see section 3a)
 6. Script writes results as `PendingContractType` records to the database (one per extracted contract type)
 7. Script prints summary: what was extracted, any extraction notes, and "Review and approve in the admin panel"
 
@@ -202,6 +216,22 @@ type ContractType = {
 - Shared TypeScript types
 - `fs` for reading local PDF files
 - `readline` or `inquirer` for CLI prompts
+- `tsx` for running TypeScript directly (add to devDependencies if not present)
+
+### 3a. Runtime Validation (Zod Schemas)
+
+Gemini output must be validated at runtime, not just at compile time. A Zod schema mirroring the new `Rules` type system will be created at `functions/src/schemas/rules.ts`.
+
+Key validation constraints:
+- `tiers` arrays must be sorted by `min` and have non-overlapping ranges
+- `tier.min < tier.max` (or `max` is null for unbounded)
+- `basis` values must be from the canonical set: `"totalScaleWages"`, `"overtimePay"`, `"totalPremiums"`, `"totalCartage"`, `"totalRehearsal"`, `"subtotalWages"`, `"totalAdditionalFees"`
+- `ConditionalRule` must have at least one condition
+- `PercentageRule.rate` must be > 0
+- `billing.increment` must be a positive integer
+- `billing.minimum` must be >= `billing.increment`
+
+If validation fails, the script logs errors and writes the record as `status: 'error'` with the validation message, so the admin can see what went wrong.
 
 ---
 
@@ -235,7 +265,7 @@ type ContractType = {
 ### Model
 
 - `gemini-3.1-flash-lite-preview` (unchanged)
-- Structured JSON response with `responseSchema`
+- Structured JSON response with `responseSchema` — the new schema must mirror the Zod/TypeScript types for the new `Rules` structure. This will be defined as a sub-task during implementation since it's a direct translation of the TypeScript types into JSON Schema format.
 - Truncated response repair logic carries over
 
 ---
@@ -261,6 +291,7 @@ type ContractType = {
 - Tab label: "Batch Ingestion" → "Config Review"
 - Info banner: "Use the config-builder CLI to ingest new wage agreements. Items appear here for review."
 - JSON editor: Add labeled side panel showing human-readable field names alongside raw JSON
+- Audit all user-facing strings for references to ZIP/Drive upload (empty-state messages, button labels, tooltips) and update to reference the CLI script
 
 ---
 
@@ -287,7 +318,7 @@ These are app-level changes that happen separately:
 
 1. **PDF template filling** — The app fills AcroForm PDFs (LS-1, B-series) with calculated results. `pdfTemplateFields` exists on `ContractType` but stays empty until this is built.
 2. **Calculation engine rewrite** — The engine needs updating to evaluate the new `Rules` type (tiers, conditions, pensionable tracking). Follow-on task.
-3. **Backward compatibility migration** — Existing `LocalConfig` records with the old flat `Rules` format keep working as-is. No auto-migration.
+3. **Backward compatibility migration** — Existing `LocalConfig` records with the old flat `Rules` format keep working as-is. No auto-migration. Any existing `PendingContractType` records still in `pending` status should be approved, rejected, or deleted before deploying the new system, since the review UI will be updated for the new schema.
 4. **Form-driven wizard redesign** — Users selecting the actual AFM form (LS-1, B-7) at the top of the wizard, driving which questions are asked. Separate UX project.
 
 ---
@@ -321,8 +352,9 @@ All are genuine AcroForms fillable by `pdf-lib`. Field naming is inconsistent ac
 |---|---|
 | `frontend/src/types.ts` | Replace `Rules`, `Rule`, `HealthRule` types with new type system |
 | `functions/src/scripts/config-builder.ts` | New file — CLI script |
+| `functions/src/schemas/rules.ts` | New file — Zod validation schemas for new Rules type |
 | `functions/src/utils/gemini.ts` | Add new extraction prompt for wage agreements |
-| `frontend/src/components/BatchIngestion.tsx` | Remove upload UI, add labeled JSON editor, rename tab |
+| `frontend/src/components/BatchIngestion.tsx` | Remove upload UI, add labeled JSON editor, rename tab, update all copy |
 | `functions/src/routes/batch.ts` | Remove upload/drive route handlers |
 | `functions/src/schemas/batch.ts` | Remove upload/drive validation schemas |
 | `README.md` | Update with config builder docs, architecture changes |
