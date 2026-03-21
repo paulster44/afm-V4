@@ -20,6 +20,7 @@ Live: [afm-smart-contracts-app.web.app](https://afm-smart-contracts-app.web.app)
 - [Calculation Engine](#calculation-engine)
 - [PDF Generation](#pdf-generation)
 - [Email Integration](#email-integration)
+- [Config Builder CLI](#config-builder-cli)
 - [Admin Panel](#admin-panel)
 - [Role System](#role-system)
 - [Security](#security)
@@ -99,10 +100,9 @@ The frontend is a React 18 SPA served from Firebase Hosting's global CDN. All `/
 | Firebase Admin SDK | 13.7 | Token verification, user management (disable/delete) |
 | Firebase Functions | 7.0 | Cloud Function runtime (2nd Gen, scales to zero) |
 | Zod | 3.23 | Request body validation schemas |
-| @google/genai | 1.23 | Gemini AI SDK (contract scanner + batch ingestion) |
+| @google/genai | 1.23 | Gemini AI SDK (contract scanner + config builder) |
 | Resend | 6.9 | Transactional email delivery |
-| adm-zip | 0.5 | ZIP file extraction (batch upload) |
-| Busboy | 1.6 | Multipart form data parsing (PDF email attachments, file uploads) |
+| Busboy | 1.6 | Multipart form data parsing (PDF email attachments) |
 | Helmet | 7.1 | HTTP security headers |
 | express-rate-limit | 7.2 | Rate limiting (100 requests / 15 minutes) |
 
@@ -330,8 +330,6 @@ All routes require authentication. Ownership is verified on write operations.
 | `POST` | `/notes` | SuperAdmin | Create a new admin note or reply to an existing one |
 | `PUT` | `/notes/:id/pin` | GOD | Toggle pin status on a note |
 | `DELETE` | `/notes/:id` | GOD | Delete an admin note (cascades to replies) |
-| `POST` | `/batch-upload` | SuperAdmin | Upload a ZIP of contract documents for batch Gemini processing |
-| `POST` | `/batch-drive` | SuperAdmin | Import files from a public Google Drive folder for batch processing |
 | `GET` | `/batch-pending` | SuperAdmin | List pending contract type items (filterable by localId, status, batchId) |
 | `PUT` | `/batch-pending/:id` | SuperAdmin | Edit the parsed JSON of a pending item |
 | `POST` | `/batch-pending/:id/approve` | SuperAdmin | Approve and merge a pending contract type into the local's config |
@@ -534,7 +532,9 @@ Each `ContractType` defines:
 | `currency` | Optional override of the local's default currency |
 | `fields[]` | Array of form field definitions (see DynamicField) |
 | `wageScales[]` | Array of wage scales with id, name, rate, duration |
-| `rules` | Financial rules: overtime rate, leader/doubling premiums, pension, health, work dues |
+| `rules` | Financial rules: typed rule system (percentage, tiered, flat, conditional) for overtime, premiums, pension, health, work dues, surcharges, and billing |
+| `pdfTemplateFields` | Optional mapping of app fields to AcroForm PDF field names |
+| `extractionNotes` | Optional AI extraction uncertainty flags |
 | `legalText` | Preamble + named legal clauses for PDF output |
 | `summary[]` | Ordered list of calculation result IDs to display |
 
@@ -627,6 +627,46 @@ From address: `AFM Smart Contracts <{EMAIL_SENDER}>` (configurable via environme
 
 ---
 
+## Config Builder CLI
+
+The config builder is a CLI script that replaces the old admin panel upload forms for ingesting wage agreements. It reads local wage agreement PDFs, extracts contract types via Gemini AI, validates with Zod, and writes `PendingContractType` records for admin review.
+
+### Running the Config Builder
+
+```bash
+cd functions && npm run config-builder
+```
+
+### Flow
+
+1. **Authenticate** — Enter an admin email (must be an existing user in the database)
+2. **Select or create a local** — Choose from existing locals or create a new one with ID, name, and currency
+3. **Provide PDF paths** — Comma-separated paths to wage agreement PDF files on disk
+4. **Gemini extraction** — Each PDF is sent to Gemini AI with a specialized wage agreement prompt that extracts multiple contract types, wage scales, financial rules, and legal text
+5. **Zod validation** — Extracted data is validated against `extractedContractTypeSchema` in `functions/src/schemas/rules.ts`
+6. **Database write** — Valid results are written as `PendingContractType` records with status `pending`; validation failures are written with status `error`
+7. **Admin review** — Review, edit, approve, or reject items in the admin panel's Config Review tab
+
+### Rules Type System
+
+New configs use a typed rule system that supports:
+
+| Rule Type | Description |
+|---|---|
+| `PercentageRule` | Rate applied to a basis (e.g., 8.5% of totalScaleWages) |
+| `TieredRule` | Value varies by tier (e.g., leader premium by ensemble size) |
+| `FlatRule` | Fixed amount per musician, service, or engagement |
+| `ConditionalRule` | Rule selection based on conditions (e.g., different pension rate by contract type) |
+| `SurchargeRule` | Multiplier, percentage, or flat surcharge with a trigger condition |
+
+Every rule has a `pensionable` flag indicating whether its output is included in the pension contribution basis.
+
+Existing locals with old-format rules (`overtimeRate`, `pensionContribution`, `healthContribution`, `doublingPremium`) continue to work unchanged — the calculation engine and type system maintain full backward compatibility via legacy fields on the `Rules` type.
+
+Design spec: `docs/superpowers/specs/2026-03-19-config-builder-design.md`
+
+---
+
 ## Admin Panel
 
 The admin panel (`/#admin`) is a multi-tab interface with role-gated sections:
@@ -634,14 +674,9 @@ The admin panel (`/#admin`) is a multi-tab interface with role-gated sections:
 ### Contract Scanner (SuperAdmin+)
 Upload a photo of a physical union contract document. **Google Gemini 2.5 Flash** analyzes the image server-side and extracts all fields, wage scales, rules, and legal text into a structured `ContractType` JSON object using a strict response schema. The output can be copied and pasted into the LocalConfig Editor.
 
-### Batch Ingestion (SuperAdmin+)
-Bulk-import contract types from physical documents. Two ingestion modes:
-
-- **ZIP Upload** — Upload a ZIP file (up to 50MB, max 15 files) containing contract documents (PDF, PNG, JPG, DOC, DOCX). Each file is processed through Gemini AI server-side and stored as a `PendingContractType` record.
-- **Google Drive** — Provide a public Google Drive folder URL. The backend lists and downloads supported files from the folder, processing each through Gemini AI.
-
-After upload, a review panel shows all pending items with status badges (pending/approved/rejected/error). Admins can:
-- **Edit** the AI-extracted JSON before approval
+### Config Review (SuperAdmin+)
+Review queue for contract types generated by the config builder CLI. Shows all pending items with status badges (pending/approved/rejected/error). Admins can:
+- **Edit** the AI-extracted JSON before approval (with a collapsible field reference for the new Rules types)
 - **Approve** to merge the contract type into the target local's config
 - **Reject** or **Delete** unwanted results
 - Filter by status
@@ -678,7 +713,7 @@ Four-tier role hierarchy:
 |---|---|
 | `USER` | Create/edit/save/export own contracts |
 | `ADMIN` | Everything USER can do + Usage Dashboard, Announcements |
-| `SUPERADMIN` | Everything ADMIN can do + AI Scanner, Batch Ingestion, Admin Notes |
+| `SUPERADMIN` | Everything ADMIN can do + AI Scanner, Config Review, Admin Notes |
 | `GOD` | Everything SUPERADMIN can do + User management (role changes, suspend, delete), Local Configs tab |
 
 GOD role is initially hardcoded for `paulpivetta@gmail.com` in the auto-provisioning endpoint. Additional GOD/SUPERADMIN users can only be assigned by an existing GOD user.
@@ -744,7 +779,7 @@ All TypeScript types are defined in a single canonical file:
 - `Config` — top-level local config (localId, localName, currency, contractTypes)
 - `ContractType` — contract template definition (with optional `stepMeta`, `additionalFees`)
 - `Field` — form field definition (type, label, validation, options, group, `subtracts` flag)
-- `Rules` — financial rules (overtime, premiums, pension, health, work dues)
+- `Rules` — financial rules with typed rule system (`PercentageRule`, `TieredRule`, `FlatRule`, `ConditionalRule`, `SurchargeRule`, `ExtensionRule`) plus legacy fields for backward compatibility
 - `WageScale` — wage scale definition (id, name, rate, duration)
 - `AdditionalFee` — fee definition (id, name, rate, category, perMusician)
 - `StepMeta` — conditional step visibility rules (field, operator, value)
@@ -762,7 +797,8 @@ All route handlers that accept request bodies use Zod schemas for runtime valida
 
 - `functions/src/schemas/contracts.ts` — `createContractSchema`, `updateContractSchema`, `createVersionSchema`
 - `functions/src/schemas/admin.ts` — `updateRoleSchema` (enum: USER/ADMIN/SUPERADMIN/GOD), `createAnnouncementSchema`
-- `functions/src/schemas/batch.ts` — `batchPendingQuerySchema`, `updateParsedDataSchema`, `batchDriveSchema`
+- `functions/src/schemas/batch.ts` — `batchPendingQuerySchema`, `updateParsedDataSchema`
+- `functions/src/schemas/rules.ts` — `rulesSchema`, `extractedContractTypeSchema` (Zod schemas for config builder validation)
 - `functions/src/schemas/locals.ts` — `createLocalSchema`, `updateLocalSchema`
 
 Invalid requests receive a 400 response with Zod error details. JSON blob fields (formData, personnel, config) use `Prisma.InputJsonValue` transforms for type compatibility.
@@ -881,7 +917,7 @@ firebase deploy
 
 ## Changelog
 
-### March 2026 — Wizard UX, Batch Ingestion, Deposits, Email Logging
+### March 2026 — Wizard UX, Config Builder, Deposits, Email Logging
 
 **Step-Based Wizard**
 - Replaced the single-page accordion contract form with a step-by-step wizard
@@ -889,12 +925,14 @@ firebase deploy
 - New hook: `useWizardNavigation` with conditional step visibility via `stepMeta`
 - Review step shows read-only summary, calculation results, all actions, and email history
 
-**Batch Contract Ingestion**
-- New admin tab for bulk-importing contract types from document scans
-- ZIP upload (up to 15 files, 50MB) or Google Drive folder URL
-- Server-side Gemini AI processing with review/approve/reject workflow
-- New Prisma model: `PendingContractType`
-- New backend routes: `batch.ts` with full CRUD for pending items
+**Config Builder CLI**
+- New CLI script (`npm run config-builder`) replaces admin panel upload forms for wage agreement ingestion
+- Reads local wage agreement PDFs, extracts contract types via Gemini AI with specialized prompt
+- New typed Rules system: `PercentageRule`, `TieredRule`, `FlatRule`, `ConditionalRule`, `SurchargeRule`
+- Zod validation schemas for extracted data (`functions/src/schemas/rules.ts`)
+- Admin panel "Config Review" tab for reviewing CLI-generated items
+- Full backward compatibility with existing old-format rules
+- Removed ZIP upload and Google Drive ingestion routes from backend
 
 **Deposit & Balance Due**
 - Currency fields with `subtracts: true` or IDs containing "deposit" are treated as deductions
@@ -916,7 +954,7 @@ firebase deploy
 
 **SUPERADMIN Role**
 - New role tier between ADMIN and GOD
-- Controls access to AI Scanner, Batch Ingestion, and Admin Notes
+- Controls access to AI Scanner, Config Review, and Admin Notes
 - New middleware: `requireSuperAdmin`
 
 **Gemini AI moved server-side**
