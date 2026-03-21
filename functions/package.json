@@ -14,7 +14,8 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "generate": "prisma generate",
-    "seed": "ts-node prisma/seedLocals.ts"
+    "seed": "ts-node prisma/seedLocals.ts",
+    "config-builder": "ts-node src/scripts/config-builder.ts"
   },
   "dependencies": {
     "@google/genai": "^1.43.0",
