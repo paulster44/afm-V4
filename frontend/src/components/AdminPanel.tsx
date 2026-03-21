@@ -456,7 +456,7 @@ const AdminPanel: React.FC = () => {
                         )}
                         {isSuperAdmin && (
                             <button onClick={() => setView('batch')} className={tabClasses('batch')}>
-                                Batch Ingestion
+                                Config Review
                             </button>
                         )}
                         <button onClick={() => setView('usage')} className={tabClasses('usage')}>

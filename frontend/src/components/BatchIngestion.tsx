@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import type { PendingContractType } from '../types';
 
-type LocalOption = { id: number; name: string };
-
 const statusColors: Record<string, string> = {
     pending: 'bg-yellow-900 text-yellow-300 border-yellow-700',
     approved: 'bg-emerald-900 text-emerald-300 border-emerald-700',
@@ -13,24 +11,6 @@ const statusColors: Record<string, string> = {
 
 const BatchIngestion: React.FC = () => {
     const { getFreshAuthHeaders } = useAuth();
-
-    // Ingestion mode
-    const [ingestionMode, setIngestionMode] = useState<'zip' | 'drive'>('zip');
-
-    // Upload state
-    const [locals, setLocals] = useState<LocalOption[]>([]);
-    const [selectedLocalId, setSelectedLocalId] = useState<number | '' | 'new'>('');
-    const [zipFile, setZipFile] = useState<File | null>(null);
-    const [driveUrl, setDriveUrl] = useState('');
-    const [uploading, setUploading] = useState(false);
-    const [uploadResult, setUploadResult] = useState<{ batchId: string; totalFiles: number; processed: number; failed: number } | null>(null);
-    const [uploadError, setUploadError] = useState('');
-
-    // New local form state
-    const [newLocalId, setNewLocalId] = useState('');
-    const [newLocalName, setNewLocalName] = useState('');
-    const [newCurrencySymbol, setNewCurrencySymbol] = useState('$');
-    const [newCurrencyCode, setNewCurrencyCode] = useState('USD');
 
     // Pending items state
     const [items, setItems] = useState<PendingContractType[]>([]);
@@ -43,23 +23,6 @@ const BatchIngestion: React.FC = () => {
     const [jsonError, setJsonError] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
     const [actionMessage, setActionMessage] = useState({ type: '', text: '' });
-
-    useEffect(() => {
-        fetchLocals();
-        fetchPendingItems();
-    }, []);
-
-    const fetchLocals = async () => {
-        try {
-            const res = await fetch('/api/locals', { headers: await getFreshAuthHeaders() });
-            if (res.ok) {
-                const data = await res.json();
-                setLocals(data.locals || []);
-            }
-        } catch (err) {
-            console.error('Failed to fetch locals:', err);
-        }
-    };
 
     const fetchPendingItems = useCallback(async () => {
         setLoadingItems(true);
@@ -81,155 +44,6 @@ const BatchIngestion: React.FC = () => {
     useEffect(() => {
         fetchPendingItems();
     }, [filterStatus, fetchPendingItems]);
-
-    const handleUpload = async () => {
-        if (!zipFile || selectedLocalId === '') return;
-        if (selectedLocalId === 'new' && (!newLocalId || !newLocalName)) return;
-
-        setUploading(true);
-        setUploadError('');
-        setUploadResult(null);
-
-        try {
-            let localId: number;
-
-            if (selectedLocalId === 'new') {
-                const createRes = await fetch('/api/locals', {
-                    method: 'POST',
-                    headers: { ...await getFreshAuthHeaders(), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id: Number(newLocalId),
-                        name: newLocalName,
-                        config: {
-                            localId: Number(newLocalId),
-                            localName: newLocalName,
-                            currency: { symbol: newCurrencySymbol, code: newCurrencyCode },
-                            contractTypes: [],
-                        },
-                    }),
-                });
-
-                if (!createRes.ok) {
-                    const data = await createRes.json();
-                    throw new Error(data.error || 'Failed to create local');
-                }
-
-                const created = await createRes.json();
-                localId = created.id;
-                await fetchLocals();
-                setSelectedLocalId(localId);
-                setNewLocalId('');
-                setNewLocalName('');
-                setNewCurrencySymbol('$');
-                setNewCurrencyCode('USD');
-            } else {
-                localId = selectedLocalId;
-            }
-
-            const formData = new FormData();
-            formData.append('zipFile', zipFile);
-            formData.append('localId', String(localId));
-
-            const res = await fetch('/api/admin/batch-upload', {
-                method: 'POST',
-                headers: await getFreshAuthHeaders(),
-                body: formData,
-            });
-
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || 'Upload failed');
-            }
-
-            const data = await res.json();
-            setUploadResult(data);
-            setZipFile(null);
-            // Reset the file input
-            const fileInput = document.getElementById('zip-file-input') as HTMLInputElement;
-            if (fileInput) fileInput.value = '';
-            // Refresh the pending list
-            fetchPendingItems();
-        } catch (err) {
-            setUploadError(err instanceof Error ? err.message : 'Upload failed');
-        } finally {
-            setUploading(false);
-        }
-    };
-
-    const handleDriveImport = async () => {
-        if (!driveUrl || selectedLocalId === '') return;
-        if (selectedLocalId === 'new' && (!newLocalId || !newLocalName)) return;
-
-        setUploading(true);
-        setUploadError('');
-        setUploadResult(null);
-
-        try {
-            let localId: number;
-
-            if (selectedLocalId === 'new') {
-                const createRes = await fetch('/api/locals', {
-                    method: 'POST',
-                    headers: { ...await getFreshAuthHeaders(), 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id: Number(newLocalId),
-                        name: newLocalName,
-                        config: {
-                            localId: Number(newLocalId),
-                            localName: newLocalName,
-                            currency: { symbol: newCurrencySymbol, code: newCurrencyCode },
-                            contractTypes: [],
-                        },
-                    }),
-                });
-
-                if (!createRes.ok) {
-                    const data = await createRes.json();
-                    throw new Error(data.error || 'Failed to create local');
-                }
-
-                const created = await createRes.json();
-                localId = created.id;
-                await fetchLocals();
-                setSelectedLocalId(localId);
-                setNewLocalId('');
-                setNewLocalName('');
-                setNewCurrencySymbol('$');
-                setNewCurrencyCode('USD');
-            } else {
-                localId = selectedLocalId;
-            }
-
-            // Use Cloud Run URL directly to avoid Firebase Hosting's 60s timeout
-            const baseUrl = import.meta.env.PROD
-                ? 'https://api-olic7ddwoq-uc.a.run.app'
-                : '';
-            const res = await fetch(`${baseUrl}/api/admin/batch-drive`, {
-                method: 'POST',
-                headers: { ...await getFreshAuthHeaders(), 'Content-Type': 'application/json' },
-                body: JSON.stringify({ folderUrl: driveUrl, localId }),
-            });
-
-            const contentType = res.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                throw new Error(`Server error (${res.status}). Please try again.`);
-            }
-
-            if (!res.ok) {
-                const data = await res.json();
-                throw new Error(data.error || 'Import failed');
-            }
-
-            const data = await res.json();
-            setUploadResult(data);
-            setDriveUrl('');
-            fetchPendingItems();
-        } catch (err) {
-            setUploadError(err instanceof Error ? err.message : 'Import failed');
-        } finally {
-            setUploading(false);
-        }
-    };
 
     const openReview = (item: PendingContractType) => {
         setReviewItem(item);
@@ -366,157 +180,9 @@ const BatchIngestion: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            {/* Upload Section */}
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-                <h2 className="text-xl font-bold mb-4">Batch Import</h2>
-
-                <div className="flex gap-2 mb-4">
-                    <button
-                        onClick={() => setIngestionMode('zip')}
-                        className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${ingestionMode === 'zip' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                    >
-                        Upload ZIP
-                    </button>
-                    <button
-                        onClick={() => setIngestionMode('drive')}
-                        className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${ingestionMode === 'drive' ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                    >
-                        Import from Google Drive
-                    </button>
-                </div>
-
-                <p className="text-sm text-gray-400 mb-4">
-                    {ingestionMode === 'zip'
-                        ? 'Upload a ZIP file containing contract documents (PDF, PNG, JPG, DOC, DOCX). Each file will be scanned with AI and queued for review. Maximum 15 files, 50MB total.'
-                        : 'Paste a publicly-shared Google Drive folder URL. Uploaded files (PDF, PNG, JPG, DOC, DOCX) will be downloaded and scanned. Google Docs native files are not supported. Maximum 15 files.'}
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1">Target Local</label>
-                        <select
-                            value={selectedLocalId}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setSelectedLocalId(val === 'new' ? 'new' : val ? Number(val) : '');
-                            }}
-                            className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-md focus:ring-indigo-500 focus:border-indigo-500 p-2.5"
-                        >
-                            <option value="">Select a local...</option>
-                            <option value="new">+ Create new local...</option>
-                            {locals.map(l => (
-                                <option key={l.id} value={l.id}>Local {l.id} — {l.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        {ingestionMode === 'zip' ? (
-                            <>
-                                <label className="block text-sm font-medium text-gray-300 mb-1">ZIP File</label>
-                                <input
-                                    id="zip-file-input"
-                                    type="file"
-                                    accept=".zip"
-                                    onChange={(e) => setZipFile(e.target.files?.[0] || null)}
-                                    className="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
-                                />
-                            </>
-                        ) : (
-                            <>
-                                <label className="block text-sm font-medium text-gray-300 mb-1">Google Drive Folder URL</label>
-                                <input
-                                    type="text"
-                                    value={driveUrl}
-                                    onChange={(e) => setDriveUrl(e.target.value)}
-                                    placeholder="https://drive.google.com/drive/folders/..."
-                                    className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-md p-2.5 focus:ring-indigo-500 focus:border-indigo-500"
-                                />
-                            </>
-                        )}
-                    </div>
-                    <div>
-                        <button
-                            onClick={ingestionMode === 'zip' ? handleUpload : handleDriveImport}
-                            disabled={
-                                uploading ||
-                                selectedLocalId === '' ||
-                                (selectedLocalId === 'new' && (!newLocalId || !newLocalName)) ||
-                                (ingestionMode === 'zip' && !zipFile) ||
-                                (ingestionMode === 'drive' && !driveUrl)
-                            }
-                            className="w-full bg-emerald-600 text-white font-bold py-2.5 px-4 rounded-md hover:bg-emerald-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
-                        >
-                            {uploading ? 'Processing...' : ingestionMode === 'zip' ? 'Upload & Scan' : 'Import & Scan'}
-                        </button>
-                    </div>
-                </div>
-
-                {selectedLocalId === 'new' && (
-                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gray-900 p-4 rounded-md border border-gray-700">
-                        <div>
-                            <label className="block text-xs font-medium text-gray-400 mb-1">Local ID</label>
-                            <input
-                                type="number"
-                                value={newLocalId}
-                                onChange={(e) => setNewLocalId(e.target.value)}
-                                placeholder="e.g. 802"
-                                className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-gray-400 mb-1">Local Name</label>
-                            <input
-                                type="text"
-                                value={newLocalName}
-                                onChange={(e) => setNewLocalName(e.target.value)}
-                                placeholder="e.g. New York City"
-                                className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-gray-400 mb-1">Currency Symbol</label>
-                            <input
-                                type="text"
-                                value={newCurrencySymbol}
-                                onChange={(e) => setNewCurrencySymbol(e.target.value)}
-                                className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-medium text-gray-400 mb-1">Currency Code</label>
-                            <input
-                                type="text"
-                                value={newCurrencyCode}
-                                onChange={(e) => setNewCurrencyCode(e.target.value)}
-                                className="w-full bg-gray-700 border border-gray-600 text-white text-sm rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-                    </div>
-                )}
-
-                {uploadError && (
-                    <div className="mt-4 bg-red-900/50 text-red-200 p-3 rounded-md text-sm">{uploadError}</div>
-                )}
-                {uploadResult && (
-                    <div className="mt-4 bg-emerald-900/50 text-emerald-200 p-3 rounded-md text-sm">
-                        Batch <code className="bg-gray-700 px-1 rounded">{uploadResult.batchId.slice(0, 8)}...</code> processed: {uploadResult.processed} succeeded, {uploadResult.failed} failed out of {uploadResult.totalFiles} files.
-                    </div>
-                )}
+            <div className="mb-6 p-4 bg-blue-900/30 border border-blue-700 rounded-lg text-blue-300 text-sm">
+                Run <code className="bg-gray-800 px-1.5 py-0.5 rounded text-blue-200">cd functions && npm run config-builder</code> to ingest new wage agreements. Items appear here for review.
             </div>
-
-            {/* Loading overlay for upload */}
-            {uploading && (
-                <div className="fixed inset-0 bg-black bg-opacity-70 z-50 flex flex-col justify-center items-center">
-                    <svg className="animate-spin h-12 w-12 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <p className="mt-4 text-lg text-gray-200">
-                        {ingestionMode === 'drive' ? 'Downloading & scanning files with Gemini AI...' : 'Scanning files with Gemini AI...'}
-                    </p>
-                    <p className="mt-1 text-sm text-gray-400">This may take a few minutes for multiple files.</p>
-                </div>
-            )}
 
             {/* Pending Items Section */}
             <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
@@ -545,7 +211,7 @@ const BatchIngestion: React.FC = () => {
                 {loadingItems ? (
                     <p className="text-gray-400">Loading...</p>
                 ) : items.length === 0 ? (
-                    <p className="text-gray-500 italic">No pending items. Upload a ZIP to get started.</p>
+                    <p className="text-gray-500 italic">No pending items. Run the config-builder CLI to add items.</p>
                 ) : (
                     <div className="space-y-4">
                         {Object.entries(groupedItems).map(([batchId, batchItems]) => (
@@ -639,6 +305,24 @@ const BatchIngestion: React.FC = () => {
                             {jsonError && (
                                 <div className="mb-4 bg-red-900/50 text-red-200 p-3 rounded-md text-sm">{jsonError}</div>
                             )}
+                            <details className="mb-3">
+                                <summary className="text-sm text-gray-400 cursor-pointer hover:text-gray-300">
+                                    Field Reference
+                                </summary>
+                                <div className="mt-2 text-xs text-gray-500 space-y-1 max-h-48 overflow-y-auto">
+                                    <div><code>rules.overtime</code> — Overtime rate (PercentageRule or TieredRule)</div>
+                                    <div><code>rules.leaderPremium</code> — Leader premium (TieredRule by ensemble size)</div>
+                                    <div><code>rules.pension</code> — Pension contribution (PercentageRule or ConditionalRule)</div>
+                                    <div><code>rules.health</code> — Health & welfare (FlatRule per musician/service)</div>
+                                    <div><code>rules.workDues</code> — Work dues (PercentageRule)</div>
+                                    <div><code>rules.doubling</code> — Doubling premium (TieredRule or PercentageRule)</div>
+                                    <div><code>rules.billing</code> — Billing increments and minimums (minutes)</div>
+                                    <div><code>rules.surcharges</code> — After-midnight, onstage, etc.</div>
+                                    <div><code>rules.extensions</code> — Additional rules not fitting core types</div>
+                                    <div><code>pensionable: true/false</code> — Whether rule output counts toward pension basis</div>
+                                    <div><code>extractionNotes</code> — AI uncertainty flags (review carefully)</div>
+                                </div>
+                            </details>
                             <textarea
                                 value={editJson}
                                 onChange={(e) => { setEditJson(e.target.value); setJsonError(''); }}
