@@ -222,3 +222,69 @@ describe('calculateEngagement — contribution_only', () => {
     expect(total?.value).toBe(150); // $100 pension + $50 health
   });
 });
+
+// ─── backward compatibility with old Rules format ────────────────────────────
+
+describe('backward compatibility with old Rules format', () => {
+  // Create a ContractType with the old flat Rules shape
+  const oldFormatContractType: ContractType = {
+    id: 'test_old_format',
+    name: 'Test Old Format',
+    formIdentifier: 'TEST_OLD',
+    calculationModel: 'live_engagement',
+    fields: [
+      { id: 'engagementType', label: 'Type', type: 'select', required: true, dataSource: 'wageScales' },
+      { id: 'engagementDuration', label: 'Duration', type: 'number', required: true },
+    ],
+    wageScales: [
+      { id: 'casual_2hr', name: 'Casual (2hr)', rate: 200, duration: 2 },
+    ],
+    rules: {
+      overtimeRate: 1.5,
+      leaderPremium: { rate: 100, description: 'Leader receives double scale' },
+      doublingPremium: { rate: 15, description: '15% for first double' },
+      pensionContribution: { rate: 8.5, basedOn: ['totalScaleWages'], description: '8.5%' },
+      healthContribution: { ratePerMusicianPerService: 5.50, description: '$5.50/musician' },
+      workDues: { rate: 1.5, basedOn: ['totalScaleWages'], description: '1.5% work dues' },
+    } as any, // old format still accepted via legacy fields
+    summary: [],
+  };
+
+  const personnel = [
+    { id: '1', name: 'Leader', address: '', role: 'leader' as const, doubling: true, cartage: false },
+    { id: '2', name: 'Side', address: '', role: 'sideperson' as const, doubling: false, cartage: false },
+  ];
+  const formData = { engagementType: 'casual_2hr', engagementDuration: 3 };
+
+  it('calculates with old overtimeRate number', () => {
+    const results = calculateEngagement(formData, oldFormatContractType, personnel);
+    const overtime = results.find(r => r.id === 'totalOvertimePay');
+    // 1 hour overtime * (200/2 hourly rate) * 1.5 multiplier * 2 musicians = 300
+    expect(overtime?.value).toBe(300);
+  });
+
+  it('calculates with old leaderPremium.rate', () => {
+    const results = calculateEngagement(formData, oldFormatContractType, personnel);
+    const premiums = results.find(r => r.id === 'totalPremiums');
+    // Leader: 200 * (100/100) = 200 leader premium + doubling premium
+    // Doubling on leader: 200 * (15/100) = 30
+    // Total premiums = 200 + 30 = 230
+    expect(premiums).toBeDefined();
+    expect(premiums!.value).toBeGreaterThan(0);
+  });
+
+  it('calculates with old pensionContribution.rate', () => {
+    const results = calculateEngagement(formData, oldFormatContractType, personnel);
+    const pension = results.find(r => r.id === 'pensionContribution');
+    // Pension should be 8.5% of pensionable wages
+    expect(pension).toBeDefined();
+    expect(pension!.value).toBeGreaterThan(0);
+  });
+
+  it('calculates with old healthContribution.ratePerMusicianPerService', () => {
+    const results = calculateEngagement(formData, oldFormatContractType, personnel);
+    const health = results.find(r => r.id === 'healthContribution');
+    // $5.50 per musician * 2 musicians = $11.00
+    expect(health?.value).toBe(11);
+  });
+});
