@@ -247,3 +247,189 @@ export async function scanContractDocument(fileBuffer: Buffer, mimeType: string)
         return { success: false, error: message };
     }
 }
+
+const wageAgreementPrompt = `You are parsing an AFM (American Federation of Musicians) local's wage agreement / scale document into JSON configuration for a contract management app.
+
+## YOUR TASK
+Extract ALL wage scales, financial rules, contract types, and fees from this wage agreement document. A single document may define rates for MULTIPLE engagement types (e.g., casual performances, concerts, recordings, rehearsals). Extract each as a SEPARATE contract type in the output array.
+
+## OUTPUT FORMAT
+Return a JSON object with:
+- "contractTypes": array of ContractType objects (one per engagement type found)
+- "extractionNotes": array of strings flagging anything ambiguous or uncertain
+
+## EACH CONTRACT TYPE MUST HAVE:
+- "id": snake_case unique ID (e.g., "casual_live_engagement", "concert_performance")
+- "name": descriptive name
+- "formIdentifier": short code (e.g., "AFM_L148_Casual")
+- "calculationModel": "live_engagement", "media_report", or "contribution_only"
+- "signatureType": "engagement", "media_report", "member", or "petitioner"
+- "summary": empty array []
+- "fields": array of form field definitions (always include standard engagement fields — see below)
+- "wageScales": array of wage/pay scales with id, name, rate, and duration (hours, 0 for flat fees)
+- "rules": financial calculation rules (see RULES FORMAT below)
+- "additionalFees": travel, equipment, music prep fees
+- "extractionNotes": uncertainties for THIS contract type
+
+## STANDARD FIELDS (include for each contract type)
+- purchaserName (text, required, group: "Purchaser (Employer) Details")
+- purchaserAddress (textarea, required, group: "Purchaser (Employer) Details")
+- purchaserPhone (text, group: "Purchaser (Employer) Details")
+- engagementDate (date, required, group: "Engagement Details")
+- engagementType (select, required, dataSource: "wageScales", group: "Engagement Details")
+- engagementDuration (number, required, group: "Engagement Details", min: 0)
+- venueName (text, required, group: "Engagement Details")
+- venueAddress (textarea, group: "Engagement Details")
+- startTime (time, group: "Engagement Details")
+- rehearsalHours (number, group: "Compensation", min: 0, defaultValue: 0)
+- rehearsalRate (currency, group: "Compensation", min: 0)
+- overtimeHours (number, group: "Compensation", min: 0, defaultValue: 0)
+- additionalTerms (textarea, group: "Agreement Terms")
+Add more fields if the document specifies additional data points.
+
+## RULES FORMAT
+Rules use a typed system. Each rule has a "type" discriminator:
+
+### PercentageRule
+{ "type": "percentage", "rate": <number>, "basis": ["totalScaleWages", ...], "pensionable": <boolean>, "description": "..." }
+
+### TieredRule (for values that vary by ensemble size, number of doubles, etc.)
+{ "type": "tiered", "tiers": [{ "min": 1, "max": 1, "value": 1.5, "label": "Solo" }, { "min": 2, "max": 30, "value": 2.0, "label": "Small ensemble" }, { "min": 31, "max": null, "value": 2.5, "label": "Large ensemble" }], "unit": "multiplier"|"percentage"|"flat", "pensionable": <boolean>, "description": "..." }
+
+### FlatRule
+{ "type": "flat", "amount": <number>, "per": "musician"|"service"|"engagement", "pensionable": <boolean>, "description": "..." }
+
+### ConditionalRule (when a rule varies by contract type or other conditions)
+{ "type": "conditional", "conditions": [{ "field": "contractTypeId", "operator": "eq", "value": "casual_live" }], "rule": <PercentageRule|TieredRule|FlatRule>, "fallback": <PercentageRule|TieredRule|FlatRule> }
+
+### Rule slots in the rules object:
+- "overtime": PercentageRule or TieredRule
+- "leaderPremium": TieredRule (tiers by ensemble size) or PercentageRule
+- "pension": PercentageRule or ConditionalRule (if rate varies by engagement type)
+- "health": FlatRule
+- "workDues": PercentageRule
+- "doubling": TieredRule (first double vs additional) or PercentageRule
+- "billing": { "increment": <minutes>, "minimum": <minutes> } (e.g., 15-min increments, 120-min minimum)
+- "surcharges": array of { "id", "label", "type": "multiplier"|"percentage"|"flat", "value", "trigger", "pensionable" }
+- "rehearsal": { "separateScale": boolean, "overtimeApplies": boolean }
+- "extensions": array of { "id", "label", "description", "rule": <any rule type> } for rules not fitting above
+
+### PENSIONABLE FLAG
+Every rule MUST have "pensionable": true or false. This indicates whether the rule's output is included in the pension contribution basis.
+- Typically pensionable: scale wages, overtime, leader premiums, doubling premiums
+- Typically NOT pensionable: cartage, mileage, parking, travel, equipment fees
+
+### Valid "basis" values:
+"totalScaleWages", "overtimePay", "totalPremiums", "totalCartage", "totalRehearsal", "subtotalWages", "totalAdditionalFees"
+
+## EXTRACTION NOTES
+For ANYTHING you are uncertain about, add a note to "extractionNotes". Examples:
+- "Unclear if cartage is pensionable — document says 'subject to local bylaws'"
+- "Leader premium tiers not explicitly stated — inferred from examples"
+- "Document mentions 'special rates for holidays' but no specific rates given"
+
+## CRITICAL
+- Extract EVERY wage scale with rate AND duration
+- Extract ALL financial rules — pension %, health $, work dues %, leader premium, doubling, overtime, surcharges
+- A single document may have MULTIPLE contract types — extract each separately
+- NEVER omit duration from wage scales
+- Keep legalText clauses to 1-2 sentence summaries`;
+
+const wageAgreementResponseSchema = {
+    type: Type.OBJECT,
+    required: ['contractTypes', 'extractionNotes'],
+    properties: {
+        contractTypes: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                required: ['id', 'name', 'formIdentifier', 'fields', 'summary'],
+                properties: {
+                    id: { type: Type.STRING },
+                    name: { type: Type.STRING },
+                    formIdentifier: { type: Type.STRING },
+                    calculationModel: { type: Type.STRING, enum: ['live_engagement', 'media_report', 'contribution_only'] },
+                    signatureType: { type: Type.STRING, enum: ['engagement', 'media_report', 'member', 'petitioner'] },
+                    jurisdiction: { type: Type.STRING },
+                    currency: { type: Type.OBJECT, properties: { symbol: { type: Type.STRING }, code: { type: Type.STRING } } },
+                    fields: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: {
+                        id: { type: Type.STRING }, label: { type: Type.STRING },
+                        type: { type: Type.STRING, enum: ['text', 'date', 'time', 'currency', 'number', 'textarea', 'select'] },
+                        required: { type: Type.BOOLEAN }, group: { type: Type.STRING },
+                        placeholder: { type: Type.STRING }, description: { type: Type.STRING },
+                        options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                        dataSource: { type: Type.STRING, enum: ['wageScales'] },
+                        min: { type: Type.NUMBER }, minLength: { type: Type.NUMBER },
+                        defaultValue: { type: Type.STRING }, subtracts: { type: Type.BOOLEAN },
+                    } } },
+                    wageScales: { type: Type.ARRAY, items: { type: Type.OBJECT, required: ['id', 'name', 'rate', 'duration'], properties: {
+                        id: { type: Type.STRING }, name: { type: Type.STRING },
+                        rate: { type: Type.NUMBER }, duration: { type: Type.NUMBER },
+                        description: { type: Type.STRING },
+                    } } },
+                    rules: { type: Type.OBJECT },
+                    additionalFees: { type: Type.ARRAY, items: { type: Type.OBJECT, required: ['id', 'name', 'rate', 'category', 'perMusician'], properties: {
+                        id: { type: Type.STRING }, name: { type: Type.STRING },
+                        rate: { type: Type.NUMBER }, category: { type: Type.STRING },
+                        perMusician: { type: Type.BOOLEAN },
+                    } } },
+                    legalText: { type: Type.OBJECT },
+                    summary: { type: Type.ARRAY, items: {} },
+                    extractionNotes: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+            },
+        },
+        extractionNotes: { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+};
+
+export async function scanWageAgreement(
+    fileBuffer: Buffer,
+    mimeType: string
+): Promise<{ success: boolean; contractTypes?: object[]; extractionNotes?: string[]; error?: string }> {
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    if (!geminiApiKey) {
+        return { success: false, error: 'GEMINI_API_KEY is not configured on the server.' };
+    }
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        const base64Data = fileBuffer.toString('base64');
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3.1-flash-lite-preview',
+            contents: { parts: [
+                { inlineData: { mimeType, data: base64Data } },
+                { text: wageAgreementPrompt }
+            ] },
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: wageAgreementResponseSchema,
+                maxOutputTokens: 32768,
+            }
+        });
+
+        console.log(`[scanWageAgreement] model=${response.modelVersion}, finishReason=${response.candidates?.[0]?.finishReason}, outputLength=${response.text?.length}`);
+        const jsonText = response.text || '{}';
+        let parsedJson: { contractTypes?: object[]; extractionNotes?: string[] };
+        try {
+            parsedJson = JSON.parse(jsonText);
+        } catch {
+            const repaired = repairTruncatedJson(jsonText) as { contractTypes?: object[]; extractionNotes?: string[] } | null;
+            if (!repaired) {
+                return { success: false, error: 'AI response was truncated and could not be repaired' };
+            }
+            parsedJson = repaired;
+        }
+
+        return {
+            success: true,
+            contractTypes: parsedJson.contractTypes || [],
+            extractionNotes: parsedJson.extractionNotes || [],
+        };
+    } catch (err) {
+        const message = err instanceof Error ? err.message : 'AI scan failed';
+        console.error('[scanWageAgreement]', err);
+        return { success: false, error: message };
+    }
+}
