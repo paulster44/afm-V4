@@ -46,24 +46,108 @@ export type Field = {
   subtracts?: boolean; // When true, this field's value is subtracted from the total (e.g. deposit)
 };
 
-export type Rule = {
+// --- RULE TYPE SYSTEM ---
+
+export type Tier = {
+  min: number;
+  max: number | null;
+  value: number;
+  label?: string;
+};
+
+export type ConditionField =
+  | 'contractTypeId'
+  | 'ensembleSize'
+  | 'numberOfMusicians'
+  | 'engagementType'
+  | (string & {});
+
+export type Condition = {
+  field: ConditionField;
+  operator: 'eq' | 'neq' | 'gt' | 'gte' | 'lt' | 'lte' | 'in';
+  value: string | number | string[];
+};
+
+export type PercentageRule = {
+  type: 'percentage';
   rate: number;
-  basedOn?: string[];
+  basis: string[];
+  pensionable: boolean;
   description?: string;
 };
 
-export type HealthRule = {
-  ratePerMusicianPerService: number;
-  description: string;
+export type TieredRule = {
+  type: 'tiered';
+  tiers: Tier[];
+  unit: 'multiplier' | 'percentage' | 'flat';
+  basis?: string[];
+  pensionable: boolean;
+  description?: string;
 };
 
+export type FlatRule = {
+  type: 'flat';
+  amount: number;
+  per: 'musician' | 'service' | 'engagement';
+  pensionable: boolean;
+  description?: string;
+};
+
+export type ConditionalRule = {
+  type: 'conditional';
+  conditions: Condition[];
+  rule: PercentageRule | TieredRule | FlatRule;
+  fallback?: PercentageRule | TieredRule | FlatRule;
+};
+
+export type SurchargeRule = {
+  id: string;
+  label: string;
+  type: 'multiplier' | 'percentage' | 'flat';
+  value: number;
+  trigger: string;
+  pensionable: boolean;
+};
+
+export type ExtensionRule = {
+  id: string;
+  label: string;
+  description: string;
+  rule: PercentageRule | TieredRule | FlatRule | ConditionalRule;
+};
+
+export type RuleValue = PercentageRule | TieredRule | FlatRule | ConditionalRule;
+
+// Legacy shape — matches the old Rule type used in existing LocalConfig data
+export type LegacyRule = { rate: number; basedOn?: string[]; description?: string };
+export type LegacyHealthRule = { ratePerMusicianPerService: number; description: string };
+
 export type Rules = {
+  // New typed core
+  overtime?: PercentageRule | TieredRule;
+  leaderPremium?: TieredRule | PercentageRule | LegacyRule;
+  pension?: PercentageRule | ConditionalRule;
+  health?: FlatRule;
+  workDues?: PercentageRule | LegacyRule;
+  doubling?: TieredRule | PercentageRule;
+  billing?: {
+    increment: number;
+    minimum: number;
+  };
+  surcharges?: SurchargeRule[];
+  rehearsal?: {
+    separateScale: boolean;
+    overtimeApplies: boolean;
+  };
+  extensions?: ExtensionRule[];
+
+  // Legacy fields (backward compat with existing LocalConfig data in DB)
+  // The calculation engine in calculations.ts reads these directly.
+  // New configs use the typed core above; old configs use these.
   overtimeRate?: number;
-  pensionContribution?: Rule;
-  healthContribution?: HealthRule;
-  workDues?: Rule;
-  doublingPremium?: Rule;
-  leaderPremium?: Rule;
+  pensionContribution?: LegacyRule;
+  healthContribution?: LegacyHealthRule;
+  doublingPremium?: LegacyRule;
 };
 
 export type SummaryItem = {
@@ -119,6 +203,8 @@ export type ContractType = {
   };
   calculationModel?: 'live_engagement' | 'media_report' | 'contribution_only';
   stepMeta?: Record<string, StepMeta>;
+  pdfTemplateFields?: Record<string, string>;
+  extractionNotes?: string[];
 };
 
 

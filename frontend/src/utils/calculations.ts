@@ -1,4 +1,4 @@
-import type { FormData, ContractType, Person, CalculationResult } from '../types';
+import type { FormData, ContractType, Person, CalculationResult, LegacyRule, LegacyHealthRule } from '../types';
 
 // Helper for currency formatting
 export const formatCurrency = (value: number, _currencyCode: string, symbol: string) => {
@@ -36,10 +36,12 @@ export const calculateEngagement = (formData: FormData, contractType: ContractTy
 
                     // --- Premiums ---
                     if (person.role === 'leader' && rules?.leaderPremium) {
-                        totalPremiums += personScaleWage * (rules.leaderPremium.rate / 100);
+                        // Legacy path: assumes old Rule shape. New typed rules handled in future engine update.
+                        totalPremiums += personScaleWage * ((rules.leaderPremium as LegacyRule).rate / 100);
                     }
                     if (person.doubling && rules?.doublingPremium) {
-                        totalPremiums += personScaleWage * (rules.doublingPremium.rate / 100);
+                        // Legacy path: assumes old Rule shape. New typed rules handled in future engine update.
+                        totalPremiums += personScaleWage * ((rules.doublingPremium as LegacyRule).rate / 100);
                     }
                 });
 
@@ -172,16 +174,22 @@ export const calculateEngagement = (formData: FormData, contractType: ContractTy
     pensionableWages = totalScaleWages + totalPremiums + totalCartage + totalRehearsal + totalOvertime + totalAdditionalFees; // Pension is typically on all gross wages
 
     if (rules?.pensionContribution) {
-        pensionContribution = pensionableWages * (rules.pensionContribution.rate / 100);
-        results.push({ id: 'pensionContribution', label: `Pension (${rules.pensionContribution.description || `${rules.pensionContribution.rate}%`})`, value: pensionContribution });
+        // Legacy path: assumes old Rule shape. New typed rules handled in future engine update.
+        const legacyPension = rules.pensionContribution as LegacyRule;
+        pensionContribution = pensionableWages * (legacyPension.rate / 100);
+        results.push({ id: 'pensionContribution', label: `Pension (${legacyPension.description || `${legacyPension.rate}%`})`, value: pensionContribution });
     }
     if (rules?.healthContribution) {
+        // Legacy path: assumes old Rule shape. New typed rules handled in future engine update.
+        const legacyHealth = rules.healthContribution as LegacyHealthRule;
         const services = calculationModel === 'media_report' ? (getVal('numberOfServices') || 1) : 1;
-        healthContribution = rules.healthContribution.ratePerMusicianPerService * numberOfMusicians * services;
-        results.push({ id: 'healthContribution', label: `Health & Welfare (${rules.healthContribution.description})`, value: healthContribution });
+        healthContribution = legacyHealth.ratePerMusicianPerService * numberOfMusicians * services;
+        results.push({ id: 'healthContribution', label: `Health & Welfare (${legacyHealth.description})`, value: healthContribution });
     }
     if (rules?.workDues) {
-        results.push({ id: 'workDues', label: `Work Dues (${rules.workDues.description || `${rules.workDues.rate}%`})`, value: pensionableWages * (rules.workDues.rate / 100) });
+        // Legacy path: assumes old Rule shape. New typed rules handled in future engine update.
+        const legacyWorkDues = rules.workDues as LegacyRule;
+        results.push({ id: 'workDues', label: `Work Dues (${legacyWorkDues.description || `${legacyWorkDues.rate}%`})`, value: pensionableWages * (legacyWorkDues.rate / 100) });
     }
 
     const totalBenefits = pensionContribution + healthContribution;
