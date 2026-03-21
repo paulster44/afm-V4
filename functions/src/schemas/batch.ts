@@ -9,11 +9,3 @@ export const batchPendingQuerySchema = z.object({
 export const updateParsedDataSchema = z.object({
   parsedData: z.record(z.unknown()),
 });
-
-export const batchDriveSchema = z.object({
-  folderUrl: z.string().regex(
-    /drive\.google\.com\/.*(folders\/|folderview\?id=)/,
-    'Must be a Google Drive folder URL',
-  ),
-  localId: z.coerce.number().int(),
-});
