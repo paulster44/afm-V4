@@ -4,7 +4,7 @@
   "description": "Production-ready backend with PostgreSQL, Prisma, and Express",
   "main": "dist/index.js",
   "engines": {
-    "node": "20"
+    "node": "22"
   },
   "scripts": {
     "start": "node dist/index.js",
@@ -44,7 +44,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.6",
-    "@types/node": "^20.12.12",
+    "@types/node": "^22.0.0",
     "firebase-tools": "^15.8.0",
     "nodemon": "^3.1.0",
     "prisma": "^5.14.0",
